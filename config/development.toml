@@ -1,0 +1,11 @@
+
+[app]
+# Override the log level for development to get more detailed logs.
+log_level = "debug"
+
+[binance]
+api_key = "YOUR_BINANCE_API_KEY_HERE"
+secret_key = "YOUR_BINANCE_SECRET_KEY_HERE"
+
+[database]
+url = "postgres://postgres:root@localhost:5432/atlas_dev"

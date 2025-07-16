@@ -1,0 +1,12 @@
+# In config/base.toml
+# Default settings for all environments.
+# These can be overridden by environment-specific files or environment variables.
+
+[app]
+environment = "development"
+log_level = "info"
+
+[database]
+# The database URL will be provided by environment-specific files or env vars.
+# We put a dummy value here as a placeholder.
+url = "postgres://postgres:root@localhost/atlas_db"

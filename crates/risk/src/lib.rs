@@ -1,6 +1,7 @@
 // In crates/risk/src/lib.rs (REPLACE ENTIRE FILE)
 
 use core_types::{OrderRequest, Position, Signal};
+pub mod simple_manager;
 
 pub mod error;
 pub mod types;

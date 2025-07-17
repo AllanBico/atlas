@@ -136,6 +136,8 @@ dependencies = [
  "core-types",
  "database",
  "dotenvy",
+ "risk",
+ "strategies",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -147,6 +149,7 @@ name = "app-config"
 version = "0.1.0"
 dependencies = [
  "config",
+ "risk",
  "serde",
  "strategies",
  "thiserror",
@@ -1849,6 +1852,10 @@ name = "risk"
 version = "0.1.0"
 dependencies = [
  "core-types",
+ "num-traits",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
  "thiserror",
 ]
 
@@ -1937,6 +1944,16 @@ dependencies = [
  "rkyv",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "rust_decimal_macros"
+version = "1.37.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6268b74858287e1a062271b988a0c534bf85bbeb567fe09331bf40ed78113d5"
+dependencies = [
+ "quote",
+ "syn 2.0.104",
 ]
 
 [[package]]

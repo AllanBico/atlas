@@ -1,0 +1,15 @@
+// In crates/risk/src/types.rs
+
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+pub struct SimpleRiskSettings {
+    /// The percentage of the total portfolio to risk on a single trade (e.g., 0.01 for 1%).
+    pub risk_per_trade_percent: f64,
+    
+    /// The distance from the entry price to place the stop-loss (e.g., 0.02 for 2%).
+    pub stop_loss_percent: f64,
+    
+    /// The minimum signal confidence required to even consider a trade (e.g., 0.60 for 60%).
+    pub minimum_confidence_threshold: f64,
+}

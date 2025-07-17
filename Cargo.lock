@@ -136,7 +136,11 @@ dependencies = [
  "core-types",
  "database",
  "dotenvy",
+ "execution",
+ "num-traits",
  "risk",
+ "rust_decimal",
+ "rust_decimal_macros",
  "strategies",
  "tokio",
  "tracing",
@@ -149,6 +153,7 @@ name = "app-config"
 version = "0.1.0"
 dependencies = [
  "config",
+ "execution",
  "risk",
  "serde",
  "strategies",
@@ -684,6 +689,10 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "core-types",
+ "num-traits",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
  "thiserror",
 ]
 

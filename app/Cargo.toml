@@ -11,6 +11,10 @@ database = { path = "../crates/database" }
 web-server = { path = "../crates/web-server" }
 risk = { path = "../crates/risk" }
 strategies = { path = "../crates/strategies" }
+execution = { path = "../crates/execution" }
+rust_decimal_macros = "1.34"
+rust_decimal = "1.34"
+num-traits = "0.2"
 
 # Add these lines for logging and error handling
 tracing = "0.1"

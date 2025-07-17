@@ -4,6 +4,7 @@ use serde::Deserialize;
 // Import the settings struct from our strategies crate
 use strategies::types::MACrossoverSettings;
 use risk::types::SimpleRiskSettings;
+use execution::types::SimulationSettings;
 
 #[derive(Deserialize, Debug)]
 pub struct Settings {
@@ -17,6 +18,9 @@ pub struct Settings {
     // Add this new optional field for strategy configurations
     #[serde(default)]
     pub strategies: StrategySettings,
+
+    // Add this new optional field for the simulation settings
+    pub simulation: Option<SimulationSettings>,
 
     pub simple_risk_manager: Option<SimpleRiskSettings>,
 }

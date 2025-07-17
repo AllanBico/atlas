@@ -2,12 +2,13 @@
 
 use async_trait::async_trait;
 use core_types::{Execution, OrderRequest};
-
+pub mod simulated;
 pub mod error;
 pub mod types;
 
 // Re-export public types
 pub use error::{Error, Result};
+pub use types::SimulationSettings;
 
 /// The universal interface for an execution handler.
 ///
@@ -32,5 +33,9 @@ pub trait Executor {
     ///
     /// A `Result` containing the `Execution` details on success, or an `Error`
     /// if the order could not be successfully executed.
-    async fn execute(&self, order_request: &OrderRequest) -> Result<Execution>;
+    async fn execute(&mut self, order_request: &OrderRequest) -> Result<Execution>;
+
+    fn portfolio(&self) -> &crate::types::Portfolio {
+        unimplemented!("Portfolio view is not supported by this executor.")
+    }
 }

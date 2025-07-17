@@ -4,12 +4,19 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use chrono::{TimeZone, Utc};
 use core_types::Symbol;
+use core_types::Kline;
 use risk::simple_manager::SimpleRiskManager;
 use risk::RiskManager;
 use strategies::ma_crossover::MACrossover;
 use strategies::Strategy;
 use std::time::Duration;
 use tokio::time::sleep;
+use execution::simulated::SimulatedExecutor;
+use execution::Executor;
+use rust_decimal_macros::dec; // For our test portfolio
+use core_types::Signal;
+use rust_decimal::Decimal;
+use num_traits::ToPrimitive;
 
 // --- Command-Line Interface Definition ---
 
@@ -83,14 +90,14 @@ async fn run_app() -> Result<()> {
     let settings = app_config::load_settings()?;
     tracing::info!("Application settings loaded successfully");
 
-    let db_pool = database::connect(&settings.database).await?;
+    let _db_pool = database::connect(&settings.database).await?;
     tracing::info!("Database connection established and migrations are up-to-date");
 
-    let api_client = api_client::new(&settings.binance)?;
+    let _api_client = api_client::new(&settings.binance)?;
     tracing::info!("Binance API client created successfully");
 
     // --- Risk Manager Instantiation ---
-    let risk_manager = match settings.simple_risk_manager {
+    let mut risk_manager = match settings.simple_risk_manager {
         Some(risk_settings) => {
             let rm = SimpleRiskManager::new(risk_settings);
             tracing::info!(name = %rm.name(), "Initialized risk manager.");
@@ -111,29 +118,73 @@ async fn run_app() -> Result<()> {
     }
 
     if active_strategies.is_empty() {
-        tracing::warn!("No strategies are configured. The application will idle.");
+        anyhow::bail!("No strategies are configured. The application will not run.");
     }
+    
+    // --- Simulated Executor Instantiation ---
+    let mut executor = match settings.simulation {
+        Some(sim_settings) => {
+            let initial_capital = dec!(10_000.0); // Start with 10k USDT
+            let exec = SimulatedExecutor::new(sim_settings, initial_capital);
+            tracing::info!(name = %exec.name(), "Initialized executor.");
+            Box::new(exec) as Box<dyn Executor>
+        }
+        None => {
+            anyhow::bail!("Fatal: No simulation settings configured for run mode. Exiting.");
+        }
+    };
 
-    // --- Placeholder for the main application loop ---
-    // The main trading logic will eventually go here.
-    // For now, we will just fetch the account balance as a final check.
+    // =========================================================================
+    // --- SINGLE PIPELINE TEST (MANUAL) ---
+    // This block demonstrates the full, end-to-end logic flow.
+    // In the future, this will be replaced by the main application loop.
+    // =========================================================================
+    
+    tracing::info!("--- Starting Single Pipeline Test ---");
 
-    match api_client.get_account_balance().await {
-        Ok(account_info) => {
-            if let Some(usdt_balance) = account_info.assets.iter().find(|asset| asset.asset == "USDT") {
-                tracing::info!(
-                    "Successfully fetched account balance. Available USDT: {}",
-                    usdt_balance.available_balance
-                );
-            } else {
-                tracing::warn!("USDT balance not found in futures account assets.");
+    // 1. Get a strategy to test.
+    let strategy = active_strategies.get_mut(0).unwrap();
+    tracing::info!(strategy = %strategy.name(), "Selected strategy for test.");
+
+    // 2. Manually create some kline data for the strategy to assess.
+    //    (In a real loop, this data would come from the database or WebSocket).
+    let test_klines: Vec<Kline> = vec![]; // For now, an empty vec is fine for a simple test.
+                               // Our MA Crossover will just return Signal::Hold.
+                               // Let's manually create a signal instead.
+
+    // 3. Manually create a signal.
+    let signal = Signal::GoLong { confidence: 0.85 };
+    tracing::info!(?signal, "1. Strategy produced signal.");
+
+    // 4. Pass the signal to the Risk Manager.
+    //    We need the portfolio value, which we can get from our executor.
+    let portfolio_value = executor.portfolio().cash;
+    let open_position = executor.portfolio().open_positions.get(&Symbol("BTCUSDT".to_string()));
+    
+    match risk_manager.evaluate(&signal, portfolio_value.to_f64().unwrap(), open_position) {
+        Ok(Some(order_request)) => {
+            tracing::info!(?order_request, "2. Risk Manager approved and created OrderRequest.");
+
+            // 5. Pass the OrderRequest to the Executor.
+            match executor.execute(&order_request).await {
+                Ok(execution) => {
+                    tracing::info!(?execution, "3. Executor processed order and returned Execution.");
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "Execution failed.");
+                }
             }
+            tracing::info!(portfolio = ?executor.portfolio(), "4. Final portfolio state.");
+        }
+        Ok(None) => {
+            tracing::info!("2. Risk Manager decided no action was needed.");
         }
         Err(e) => {
-            tracing::error!(error = %e, "Failed to fetch account balance on startup");
-            return Err(e.into());
+            tracing::warn!(error = %e, "2. Risk Manager vetoed the signal.");
         }
     }
+
+    tracing::info!("--- Single Pipeline Test Finished ---");
 
     Ok(())
 }
@@ -159,7 +210,7 @@ async fn handle_backfill(
         Some(date_str) => {
             let naive = chrono::NaiveDateTime::parse_from_str(&format!("{} 00:00:00", date_str), "%Y-%m-%d %H:%M:%S")
                 .map_err(|e| anyhow::anyhow!("Failed to parse start date: {}", e))?;
-            let dt = chrono::DateTime::<chrono::Utc>::from_utc(naive, chrono::Utc);
+            let dt = chrono::Utc.from_utc_datetime(&naive);
             tracing::info!("Using provided start date: {}", dt);
             Some(dt.timestamp_millis())
         }

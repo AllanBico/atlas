@@ -26,3 +26,11 @@ h1_slow_period = 30
 m5_fast_period = 5
 m5_slow_period = 20
 confidence = 0.8
+
+[simulation]
+# Binance Futures VIP 0 fees: 0.02% maker, 0.04% taker
+maker_fee = 0.0002
+taker_fee = 0.0004
+
+# A reasonable assumption for slippage on a market order for a liquid pair
+slippage_percent = 0.0005 # 0.05%

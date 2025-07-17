@@ -1,0 +1,21 @@
+[package]
+name = "database"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+thiserror = "2.0"
+
+# Add sqlx with all the features we need
+sqlx = { version = "0.8", features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "macros",
+    "bigdecimal",
+    "chrono"
+] }
+
+# The database crate needs access to our core types
+core-types = { path = "../core-types" }
+app-config = { path = "../app-config" }
+bigdecimal = "0.4.8"

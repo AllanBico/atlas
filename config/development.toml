@@ -4,8 +4,8 @@
 log_level = "debug"
 
 [binance]
-api_key = "YOUR_BINANCE_API_KEY_HERE"
-secret_key = "YOUR_BINANCE_SECRET_KEY_HERE"
+api_key = "okgjgXGuaMqco4WrLGkcBYwZnvN3HNuTlMYqzqwkRbGySKUrTopXBPPVFVQS0ZVQ"
+secret_key = "rGAosDtNGMUFotn6yO2EViX9oy4AINQMNYzJgk0Xjw4sdeV0ZOE5sfPGt5TPIuB3"
 
 [database]
 url = "postgres://postgres:root@localhost:5432/atlas_dev"

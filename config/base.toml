@@ -4,7 +4,7 @@
 
 [app]
 environment = "development"
-log_level = "info"
+log_level = "debug"
 
 [database]
 # The database URL will be provided by environment-specific files or env vars.

@@ -1,0 +1,9 @@
+[package]
+name = "execution"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+thiserror = "2.0"
+core-types = { path = "../core-types" }
+async-trait = "0.1.88"

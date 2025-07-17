@@ -5,32 +5,59 @@ use risk::RiskManager;
 use execution::Executor;
 use core_types::{Kline, OrderRequest, Signal, Side};
 use rust_decimal_macros::dec;
-use anyhow::Result;
 use chrono::{Utc, TimeZone};
 use num_traits::ToPrimitive;
+mod logger;
+use logger::TradeLogger;
+use analytics::engine::AnalyticsEngine;
+use analytics::types::{PerformanceReport, Trade};
 
 /// The main engine for running historical backtests.
-pub struct Backtester<'a> {
+pub struct Backtester {
     /// The symbol to be tested.
     pub symbol: core_types::Symbol,
     /// The timeframe interval for the test.
     pub interval: String,
     /// A single strategy instance to test.
-    pub strategy: Box<dyn Strategy + 'a>,
+    pub strategy: Box<dyn Strategy>, // No more lifetime
     /// The risk manager instance.
-    pub risk_manager: Box<dyn RiskManager + 'a>,
+    pub risk_manager: Box<dyn RiskManager>,
     /// The execution simulator.
-    pub executor: Box<dyn Executor + 'a>,
+    pub executor: Box<dyn Executor>,
+    logger: TradeLogger,
 }
 
 const KLINE_HISTORY_SIZE: usize = 100;
 
-impl<'a> Backtester<'a> {
-    pub async fn run(&mut self, klines: Vec<Kline>) -> Result<()> {
-        // --- Main Backtesting Loop ---
+impl Backtester {
+    pub fn new(
+        symbol: core_types::Symbol,
+        interval: String,
+        strategy: Box<dyn Strategy>, // No more lifetime
+        risk_manager: Box<dyn RiskManager>,
+        executor: Box<dyn Executor>,
+    ) -> Self {
+        Self {
+            symbol,
+            interval,
+            strategy,
+            risk_manager,
+            executor,
+            logger: TradeLogger::new(),
+        }
+    }
+
+    // Change the return type from anyhow::Result<()> to anyhow::Result<PerformanceReport>
+    pub async fn run(&mut self, klines: Vec<Kline>) -> anyhow::Result<(PerformanceReport, Vec<Trade>)> {
         for i in KLINE_HISTORY_SIZE..klines.len() {
             let current_kline = &klines[i];
             let history_slice = &klines[(i - KLINE_HISTORY_SIZE)..i];
+
+            // --- At the beginning of the loop ---
+            self.logger.record_equity(
+                Utc.timestamp_millis_opt(current_kline.open_time).unwrap(),
+                self.executor.portfolio().cash
+            );
 
             // --- 1. Check for Stop-Loss Trigger ---
             let position_to_check = self.executor.portfolio().open_positions.get(&self.symbol).cloned();
@@ -58,9 +85,12 @@ impl<'a> Backtester<'a> {
                         originating_signal: Signal::Close,
                     };
 
-                    let execution_result = self.executor.execute(&close_order, open_position.sl_price).await;
-                    if let Ok(execution) = execution_result {
+                    let execution_result = self.executor.execute(&close_order, open_position.sl_price, current_kline.open_time).await;
+                    if let Ok((execution, Some(closed_pos))) = execution_result {
+                        self.logger.record_trade(&closed_pos, &execution, Utc.timestamp_millis_opt(current_kline.open_time).unwrap());
                         tracing::info!(?execution, "Stop-loss order executed.");
+                    } else if let Ok((execution, None)) = execution_result {
+                        tracing::warn!(?execution, "Stop-loss order executed but no closed position returned.");
                     } else if let Err(e) = execution_result {
                         tracing::error!(error = %e, "Failed to execute stop-loss order.");
                     }
@@ -88,10 +118,14 @@ impl<'a> Backtester<'a> {
             // --- 4. Execute Approved Order ---
             match order_request_result {
                 Ok(Some(order_request)) => {
-                    let execution_result = self.executor.execute(&order_request, calculation_kline.close).await;
+                    let execution_result = self.executor.execute(&order_request, calculation_kline.close, calculation_kline.open_time).await;
                     match execution_result {
-                        Ok(execution) => {
-                            tracing::info!(?execution, "Order executed.");
+                        Ok((execution, Some(closed_pos))) => {
+                            self.logger.record_trade(&closed_pos, &execution, Utc.timestamp_millis_opt(calculation_kline.open_time).unwrap());
+                            tracing::info!(?execution, "Order executed and trade logged.");
+                        }
+                        Ok((execution, None)) => {
+                            tracing::info!(?execution, "Order executed (entry or no position closed).");
                         }
                         Err(e) => {
                             tracing::error!(error = %e, "Order execution failed.");
@@ -106,6 +140,64 @@ impl<'a> Backtester<'a> {
                 }
             }
         }
-        Ok(())
+        tracing::info!(trades = ?self.logger.trades, "--- Logged Trades ---");
+        tracing::info!(portfolio = ?self.executor.portfolio(), "Backtest finished. Final portfolio state:");
+
+        // --- Analytics Calculation & Reporting ---
+        let initial_capital = self.executor.portfolio().initial_capital;
+        let analytics_engine = AnalyticsEngine::new();
+        let report = analytics_engine.calculate(
+            initial_capital,
+            &self.logger.trades,
+            &self.logger.equity_curve,
+        );
+
+        print_report(&report);
+
+        // Return the calculated report and the trade log
+        Ok((report, self.logger.trades.clone()))
+    }
+}
+
+/// Helper function to print the performance report in a readable format.
+fn print_report(report: &PerformanceReport) {
+    println!("\n--- Backtest Performance Report ---");
+    println!("-----------------------------------");
+    // Tier 1
+    println!("Net P&L:               ${:.2} ({:.2}%)", report.net_pnl_absolute, report.net_pnl_percentage);
+    println!("Max Drawdown:          ${:.2} ({:.2}%)", report.max_drawdown_absolute, report.max_drawdown_percentage);
+    println!("Sharpe Ratio:          {:.3}", report.sharpe_ratio);
+    println!("Profit Factor:         {:.2}", report.profit_factor);
+    println!("Win Rate:              {:.2}%", report.win_rate);
+    println!("Total Trades:          {}", report.total_trades);
+    println!("-----------------------------------");
+    // Tier 2
+    println!("Sortino Ratio:         {:.3}", report.sortino_ratio);
+    println!("Calmar Ratio:          {:.3}", report.calmar_ratio);
+    println!("Avg. Trade Duration:   {:.1}s", report.avg_trade_duration_secs);
+    println!("Expectancy:            ${:.2}", report.expectancy);
+    println!("-----------------------------------");
+    // Tier 3
+    println!("LAROM:                 {:.3}", report.larom);
+    println!("Funding P&L:           ${:.2}", report.funding_pnl);
+    println!("Max Drawdown Duration: {}s", report.drawdown_duration_secs);
+    println!("-----------------------------------");
+
+    // Confidence-Weighted Analysis
+    if !report.confidence_performance.is_empty() {
+        println!("Confidence-Weighted Performance:");
+        let mut sorted_buckets: Vec<_> = report.confidence_performance.iter().collect();
+        sorted_buckets.sort_by_key(|(k, _)| *k);
+
+        for (bucket, sub_report) in sorted_buckets {
+            println!(
+                "  - Bucket '{}': Trades = {}, Win Rate = {:.1}%, P&L = ${:.2}",
+                bucket,
+                sub_report.total_trades,
+                sub_report.win_rate,
+                sub_report.net_pnl_absolute
+            );
+        }
+        println!("-----------------------------------");
     }
 }

@@ -2,6 +2,7 @@
 
 use rust_decimal::Decimal;
 use serde::Deserialize;
+use serde::Serialize;
 
 /// Represents a single candlestick (Kline).
 #[derive(Clone, Debug, Deserialize)]
@@ -23,11 +24,11 @@ pub struct Kline {
 }
 
 /// Represents a trading pair, like "BTCUSDT".
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Symbol(pub String);
 
 /// Represents the side of a trade or position.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Side {
     Long,
     Short,
@@ -62,6 +63,7 @@ pub struct Position {
     pub leverage: u8,
     /// The calculated stop-loss price for this position.
     pub sl_price: Decimal,
+    pub entry_time: i64,
 }
 
 /// Represents a fully-formed request to place an order on the exchange.

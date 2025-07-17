@@ -1,8 +1,8 @@
 // In crates/strategies/src/types.rs
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MACrossoverSettings {
     // Parameters for the H1 "Strategist" (the trend filter)
     pub h1_fast_period: u32,

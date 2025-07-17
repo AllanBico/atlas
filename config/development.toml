@@ -14,6 +14,9 @@ url = "postgres://postgres:root@localhost:5432/atlas_dev"
 # The fraction of the total portfolio to risk per trade (1% = 0.01)
 risk_per_trade_percent = 0.01
 
+# The leverage to use for positions (e.g., 5 for 5x, 10 for 10x)
+leverage = 10
+
 # The percentage distance from entry to place the stop-loss (2% = 0.02)
 stop_loss_percent = 0.02
 

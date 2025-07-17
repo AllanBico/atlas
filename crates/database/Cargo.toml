@@ -12,7 +12,7 @@ sqlx = { version = "0.8", features = [
     "postgres",
     "macros",
     "bigdecimal",
-    "chrono"
+    "chrono","json" 
 ] }
 
 # The database crate needs access to our core types
@@ -20,3 +20,6 @@ core-types = { path = "../core-types" }
 app-config = { path = "../app-config" }
 bigdecimal = "0.4.8"
 chrono = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+analytics = { path = "../analytics" }
+serde_json = "1.0"

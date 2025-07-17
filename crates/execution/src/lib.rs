@@ -36,10 +36,9 @@ pub trait Executor {
     async fn execute(
         &mut self,
         order_request: &OrderRequest,
-        current_price: rust_decimal::Decimal, // <-- Add this parameter
-    ) -> Result<Execution>;
+        current_price: rust_decimal::Decimal,
+        current_time: i64,
+    ) -> Result<(Execution, Option<core_types::Position>)>;
 
-    fn portfolio(&self) -> &crate::types::Portfolio {
-        unimplemented!("Portfolio view is not supported by this executor.")
-    }
+    fn portfolio(&mut self) -> &mut crate::types::Portfolio;
 }

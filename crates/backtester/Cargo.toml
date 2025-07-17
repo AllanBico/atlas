@@ -8,7 +8,7 @@ core-types = { path = "../core-types" }
 strategies = { path = "../strategies" }
 risk = { path = "../risk" }
 execution = { path = "../execution" }
-
+analytics = { path = "../analytics" }
 # We will need these for logging and error handling
 tracing = "0.1"
 anyhow = "1.0"

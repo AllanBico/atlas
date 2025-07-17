@@ -56,7 +56,10 @@ impl RiskManager for SimpleRiskManager {
                         symbol: pos.symbol.clone(),
                         side: if pos.side == Side::Long { Side::Short } else { Side::Long },
                         quantity: pos.quantity,
+                        
+                        // USE the position's leverage
                         leverage: pos.leverage,
+
                         sl_price: dec!(0), // Placeholder
                         originating_signal: *signal,
                     }))
@@ -128,7 +131,10 @@ impl RiskManager for SimpleRiskManager {
             symbol: core_types::Symbol("BTCUSDT".to_string()), // Placeholder symbol
             side: signal_side,
             quantity: quantity_base,
-            leverage: 10,
+            
+            // USE the configured value
+            leverage: self.settings.leverage,
+
             sl_price,
             originating_signal: *signal,
         };

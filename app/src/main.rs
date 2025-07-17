@@ -15,10 +15,7 @@ use execution::simulated::SimulatedExecutor;
 use execution::Executor;
 use rust_decimal_macros::dec; // For our test portfolio
 use core_types::Signal;
-use num_traits::ToPrimitive;
 use backtester::Backtester;
-use rust_decimal::Decimal;
-
 // --- Command-Line Interface Definition ---
 
 #[derive(Parser, Debug)]
@@ -206,7 +203,7 @@ async fn run_app() -> Result<()> {
             tracing::info!(?order_request, "2. Risk Manager approved and created OrderRequest.");
 
             // 5. Pass the OrderRequest to the Executor.
-            match executor.execute(&order_request, dec!(50000.0)).await {
+            match executor.execute(&order_request, dec!(50000.0), dummy_kline.open_time).await {
                 Ok(execution) => {
                     tracing::info!(?execution, "3. Executor processed order and returned Execution.");
                 }
@@ -326,7 +323,7 @@ async fn handle_backtest(
 
     // Instantiate Strategy
     let strategy = match settings.strategies.ma_crossover {
-        Some(strategy_settings) => Box::new(MACrossover::new(strategy_settings)),
+        Some(ref strategy_settings) => Box::new(MACrossover::new(strategy_settings.clone())),
         None => anyhow::bail!("Cannot run backtest: ma_crossover strategy settings are missing."),
     };
 
@@ -343,15 +340,40 @@ async fn handle_backtest(
     tracing::info!("Loaded {} klines for the specified date range.", klines.len());
 
     // --- 4. Setup and Run the Backtester ---
-    let mut backtester = Backtester {
-        symbol,
-        interval,
+    let mut backtester = Backtester::new(
+        symbol.clone(), // Clone symbol for later use
+        interval.clone(), // Clone interval for later use
         strategy,
         risk_manager,
         executor,
-    };
+    );
 
-    backtester.run(klines).await?;
+    // This now returns the final performance report and the trade log
+    let (report, trades) = backtester.run(klines).await?;
+
+    // --- 5. Save the Results to the Database ---
+    if let Some(ref strategy_settings) = settings.strategies.ma_crossover {
+        tracing::info!("Saving backtest report to the database...");
+        
+        let run_id = db.save_backtest_report(
+            "MultiTimeframeMACrossover", // Strategy Name
+            &symbol,
+            &interval,
+            start_dt,
+            end_dt,
+            &strategy_settings, // The strategy's parameters
+            &report,            // The calculated performance report
+        ).await?;
+        
+        // Add this new block
+        tracing::info!(trade_count = trades.len(), "Saving individual trades to the database...");
+        db.save_trades(run_id, &trades).await?;
+        tracing::info!("Individual trades saved successfully.");
+
+        tracing::info!(run_id, "Backtest run and all associated data saved.");
+    } else {
+        tracing::warn!("Could not find strategy settings to save with the report.");
+    }
 
     Ok(())
 }

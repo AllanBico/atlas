@@ -6,6 +6,9 @@ use core_types::{Kline, Symbol};
 use bigdecimal::BigDecimal;
 use std::str::FromStr;
 use chrono::{DateTime, Utc};
+use serde_json::Value as JsonValue; 
+use analytics::types::PerformanceReport;
+use analytics::types::Trade; // Add this
 
 pub mod error;
 pub mod types;
@@ -133,5 +136,142 @@ impl Db {
             .collect();
 
         Ok(klines)
+    }
+
+    /// Saves a backtest run and its corresponding performance report to the database.
+    ///
+    /// # Arguments
+    ///
+    /// * `strategy_name`: The name of the strategy that was tested.
+    /// * `symbol`: The symbol the test was run on.
+    /// * `interval`: The interval used for the test.
+    /// * `start_date`: The start date of the test period.
+    /// * `end_date`: The end date of the test period.
+    /// * `parameters`: The strategy parameters, to be serialized to JSON.
+    /// * `report`: The calculated `PerformanceReport`.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing the ID of the new backtest run on success.
+    pub async fn save_backtest_report<T: serde::Serialize>(
+        &self,
+        strategy_name: &str,
+        symbol: &Symbol,
+        interval: &str,
+        start_date: DateTime<Utc>,
+        end_date: DateTime<Utc>,
+        parameters: &T,
+        report: &PerformanceReport,
+    ) -> Result<i64> {
+        // --- 1. Start a Transaction ---
+        let mut tx = self.0.begin().await.map_err(Error::OperationFailed)?;
+
+        // --- 2. Serialize Parameters to JSON ---
+        let params_json: JsonValue = serde_json::to_value(parameters)
+            .map_err(|e| Error::OperationFailed(sqlx::Error::Decode(e.into())))?;
+
+        // --- 3. Insert into `backtest_runs` and get the new ID ---
+        let run_id: i64 = sqlx::query!(
+            r#"
+            INSERT INTO backtest_runs (strategy_name, symbol, interval, start_date, end_date, parameters)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id
+            "#,
+            strategy_name,
+            symbol.0,
+            interval,
+            start_date,
+            end_date,
+            params_json
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::OperationFailed)?
+        .id;
+
+        // --- 4. Serialize the Confidence Performance to JSON ---
+        let confidence_json: JsonValue = serde_json::to_value(&report.confidence_performance)
+             .map_err(|e| Error::OperationFailed(sqlx::Error::Decode(e.into())))?;
+
+        // --- Convert Decimal fields to BigDecimal for sqlx ---
+        let net_pnl_absolute_bd = BigDecimal::from_str(&report.net_pnl_absolute.to_string()).unwrap();
+        let max_drawdown_absolute_bd = BigDecimal::from_str(&report.max_drawdown_absolute.to_string()).unwrap();
+        let expectancy_bd = BigDecimal::from_str(&report.expectancy.to_string()).unwrap();
+        let funding_pnl_bd = BigDecimal::from_str(&report.funding_pnl.to_string()).unwrap();
+
+        // --- 5. Insert into `performance_reports` ---
+        sqlx::query!(
+            r#"
+            INSERT INTO performance_reports (
+                run_id, net_pnl_absolute, net_pnl_percentage, max_drawdown_absolute,
+                max_drawdown_percentage, sharpe_ratio, win_rate, profit_factor, total_trades,
+                sortino_ratio, calmar_ratio, avg_trade_duration_secs, expectancy,
+                confidence_performance, larom, funding_pnl, drawdown_duration_secs
+            )
+            VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+            )
+            "#,
+            run_id,
+            net_pnl_absolute_bd,
+            report.net_pnl_percentage,
+            max_drawdown_absolute_bd,
+            report.max_drawdown_percentage,
+            report.sharpe_ratio,
+            report.win_rate,
+            report.profit_factor,
+            report.total_trades as i32, // cast u32 to i32 for postgres
+            report.sortino_ratio,
+            report.calmar_ratio,
+            report.avg_trade_duration_secs as i64, // cast f64 to i64
+            expectancy_bd,
+            confidence_json,
+            report.larom,
+            funding_pnl_bd,
+            report.drawdown_duration_secs
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::OperationFailed)?;
+
+        // --- 6. Commit the Transaction ---
+        tx.commit().await.map_err(Error::OperationFailed)?;
+
+        Ok(run_id)
+    }
+
+    /// Efficiently bulk-inserts a slice of trades into the database.
+    pub async fn save_trades(&self, run_id: i64, trades: &[Trade]) -> Result<()> {
+        if trades.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self.0.begin().await.map_err(Error::OperationFailed)?;
+        for trade in trades {
+            sqlx::query!(
+                r#"
+                INSERT INTO trades (
+                    run_id, symbol, side, entry_time, exit_time, entry_price,
+                    exit_price, quantity, pnl, fees, signal_confidence, leverage
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                "#,
+                run_id,
+                trade.symbol.0,
+                format!("{:?}", trade.side), // "Long" or "Short"
+                trade.entry_time,
+                trade.exit_time,
+                BigDecimal::from_str(&trade.entry_price.to_string()).unwrap(),
+                BigDecimal::from_str(&trade.exit_price.to_string()).unwrap(),
+                BigDecimal::from_str(&trade.quantity.to_string()).unwrap(),
+                BigDecimal::from_str(&trade.pnl.to_string()).unwrap(),
+                BigDecimal::from_str(&trade.fees.to_string()).unwrap(),
+                trade.signal_confidence,
+                trade.leverage as i32
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::OperationFailed)?;
+        }
+        tx.commit().await.map_err(Error::OperationFailed)?;
+        Ok(())
     }
 }

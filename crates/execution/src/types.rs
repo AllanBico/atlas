@@ -21,6 +21,7 @@ use std::collections::HashMap;
 /// Represents the state of the simulated trading portfolio.
 #[derive(Debug)]
 pub struct Portfolio {
+    pub initial_capital: Decimal,
     /// The total cash balance of the portfolio (e.g., in USDT).
     pub cash: Decimal,
     
@@ -30,9 +31,10 @@ pub struct Portfolio {
 
 impl Portfolio {
     /// Creates a new portfolio with an initial cash balance.
-    pub fn new(initial_cash: Decimal) -> Self {
+    pub fn new(initial_capital: Decimal) -> Self {
         Self {
-            cash: initial_cash,
+            initial_capital,
+            cash: initial_capital,
             open_positions: HashMap::new(),
         }
     }

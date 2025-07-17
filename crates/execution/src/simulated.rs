@@ -37,12 +37,12 @@ impl SimulatedExecutor {
     }
 
     // We need to provide a way to get the portfolio state for our app to use.
-    pub fn portfolio(&self) -> &Portfolio {
-        &self.portfolio
+    pub fn portfolio(&mut self) -> &mut Portfolio {
+        &mut self.portfolio
     }
 
     /// Processes an entry order (opening a new long or short position).
-    fn process_entry(&mut self, order: &OrderRequest, current_price: Decimal) -> Result<Execution> {
+    fn process_entry(&mut self, order: &OrderRequest, current_price: Decimal, current_time: i64) -> Result<(Execution, Option<Position>)> {
         // --- 1. Calculate Execution Price with Slippage ---
         let slippage_factor = Decimal::from_f64(self.settings.slippage_percent).unwrap();
         let execution_price = if order.side == Side::Long {
@@ -73,25 +73,26 @@ impl SimulatedExecutor {
             quantity: order.quantity,
             entry_price: execution_price,
             leverage: order.leverage,
-            sl_price: order.sl_price, // <-- Add this line
+            sl_price: order.sl_price,
+            entry_time: current_time, // <-- Use the passed-in time
         };
 
         // Add the new position to our portfolio's open positions.
         self.portfolio.open_positions.insert(order.symbol.clone(), new_position);
 
         // --- 4. Return the Execution Result ---
-        Ok(Execution {
+        Ok((Execution {
             symbol: order.symbol.clone(),
             side: order.side,
             price: execution_price,
             quantity: order.quantity,
             fee,
             source_request: order.clone(),
-        })
+        }, None))
     }
 
     /// Processes a closing order.
-    fn process_close(&mut self, order: &OrderRequest, current_price: Decimal) -> Result<Execution> {
+    fn process_close(&mut self, order: &OrderRequest, current_price: Decimal) -> Result<(Execution, Option<Position>)> {
         // --- 1. Find the Position to Close ---
         let open_position = self.portfolio.open_positions.remove(&order.symbol).ok_or_else(
             || Error::ExecutionFailed {
@@ -123,14 +124,14 @@ impl SimulatedExecutor {
         self.portfolio.cash += net_pnl;
 
         // --- 5. Return the Execution Result ---
-        Ok(Execution {
+        Ok((Execution {
             symbol: order.symbol.clone(),
             side: order.side, // The side of the *closing order*
             price: execution_price,
             quantity: open_position.quantity,
             fee,
             source_request: order.clone(),
-        })
+        }, Some(open_position)))
     }
 }
 
@@ -140,8 +141,8 @@ impl Executor for SimulatedExecutor {
         "SimulatedExecutor"
     }
 
-    fn portfolio(&self) -> &Portfolio {
-        &self.portfolio
+    fn portfolio(&mut self) -> &mut Portfolio {
+        &mut self.portfolio
     }
 
     /// The public method that fulfills the `Executor` trait contract.
@@ -149,17 +150,13 @@ impl Executor for SimulatedExecutor {
     async fn execute(
         &mut self,
         order_request: &OrderRequest,
-        current_price: rust_decimal::Decimal, // <-- Add parameter here
-    ) -> Result<Execution> {
-        // Remove the old placeholder price line:
-        // let current_price = dec!(50_000.0);
-        
-        // The rest of the function logic remains the same, as it now
-        // uses the `current_price` passed into it.
+        current_price: rust_decimal::Decimal,
+        current_time: i64,
+    ) -> Result<(Execution, Option<Position>)> {
         let is_entry = !self.portfolio.open_positions.contains_key(&order_request.symbol);
 
         if is_entry {
-            self.process_entry(order_request, current_price)
+            self.process_entry(order_request, current_price, current_time)
         } else {
             self.process_close(order_request, current_price)
         }

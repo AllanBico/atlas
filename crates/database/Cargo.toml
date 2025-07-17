@@ -19,3 +19,4 @@ sqlx = { version = "0.8", features = [
 core-types = { path = "../core-types" }
 app-config = { path = "../app-config" }
 bigdecimal = "0.4.8"
+chrono = "0.4"

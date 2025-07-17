@@ -5,6 +5,7 @@ use sqlx::{postgres::PgPoolOptions, PgPool};
 use core_types::{Kline, Symbol};
 use bigdecimal::BigDecimal;
 use std::str::FromStr;
+use chrono::{DateTime, Utc};
 
 pub mod error;
 pub mod types;
@@ -77,5 +78,60 @@ impl Db {
         tx.commit().await.map_err(Error::OperationFailed)?;
 
         Ok(())
+    }
+
+    /// Fetches klines for a given symbol, interval, and date range from the database.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbol`: The symbol to fetch klines for.
+    /// * `interval`: The kline interval.
+    /// * `start_time`: The start of the date range.
+    /// * `end_time`: The end of the date range.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a vector of `Kline` structs on success.
+    pub async fn get_klines_by_date_range(
+        &self,
+        symbol: &Symbol,
+        interval: &str,
+        start_time: DateTime<Utc>,
+        end_time: DateTime<Utc>,
+    ) -> Result<Vec<Kline>> {
+        let start_ts = start_time.timestamp_millis();
+        let end_ts = end_time.timestamp_millis();
+
+        // Manually map each row to Kline, converting BigDecimal to Decimal
+        let rows = sqlx::query!(
+            r#"
+            SELECT open_time, open, high, low, close, volume, close_time
+            FROM klines
+            WHERE symbol = $1 AND interval = $2 AND open_time >= $3 AND open_time <= $4
+            ORDER BY open_time ASC
+            "#,
+            symbol.0,
+            interval,
+            start_ts,
+            end_ts
+        )
+        .fetch_all(&self.0)
+        .await
+        .map_err(Error::OperationFailed)?;
+
+        let klines = rows
+            .into_iter()
+            .map(|row| Kline {
+                open_time: row.open_time,
+                open: row.open.to_string().parse().unwrap(),
+                high: row.high.to_string().parse().unwrap(),
+                low: row.low.to_string().parse().unwrap(),
+                close: row.close.to_string().parse().unwrap(),
+                volume: row.volume.to_string().parse().unwrap(),
+                close_time: row.close_time,
+            })
+            .collect();
+
+        Ok(klines)
     }
 }

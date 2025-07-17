@@ -2,7 +2,7 @@
 
 use crate::types::SimpleRiskSettings;
 use crate::{Error, Result, RiskManager}; // Import our own trait and errors
-use core_types::{OrderRequest, Position, Side, Signal};
+use core_types::{OrderRequest, Position, Side, Signal, Kline};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec; // For creating decimals from literals
 use num_traits::{FromPrimitive, ToPrimitive};
@@ -34,7 +34,8 @@ impl RiskManager for SimpleRiskManager {
     fn evaluate(
         &self,
         signal: &Signal,
-        portfolio_value: f64,
+        portfolio_value: Decimal,
+        current_kline: &Kline,
         open_position: Option<&Position>,
     ) -> Result<Option<OrderRequest>> {
         // --- Veto & Early Exit Logic ---
@@ -95,10 +96,10 @@ impl RiskManager for SimpleRiskManager {
         // This assumes the `klines` data would be passed in to get the current price.
         // For now, we will use a placeholder price.
         // In a real implementation, this would come from the live data feed.
-        let entry_price = dec!(50_000.0); // Placeholder current price
+        let entry_price = current_kline.close;
 
         // Convert portfolio_value to Decimal
-        let portfolio_value = Decimal::from_f64(portfolio_value).unwrap();
+        // let portfolio_value = Decimal::from_f64(portfolio_value).unwrap(); // This line is removed as portfolio_value is now Decimal
 
         // Calculate stop-loss price
         let sl_price = if signal_side == Side::Long {
@@ -123,11 +124,11 @@ impl RiskManager for SimpleRiskManager {
         // --- Construct the Order Request ---
         
         let order_request = OrderRequest {
-            // This would also come from the context, not the signal itself.
+            // TODO: Pass the symbol context into evaluate; Kline does not contain symbol.
             symbol: core_types::Symbol("BTCUSDT".to_string()), // Placeholder symbol
             side: signal_side,
             quantity: quantity_base,
-            leverage: 10, // Placeholder leverage
+            leverage: 10,
             sl_price,
             originating_signal: *signal,
         };

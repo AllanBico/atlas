@@ -15,8 +15,9 @@ use execution::simulated::SimulatedExecutor;
 use execution::Executor;
 use rust_decimal_macros::dec; // For our test portfolio
 use core_types::Signal;
-use rust_decimal::Decimal;
 use num_traits::ToPrimitive;
+use backtester::Backtester;
+use rust_decimal::Decimal;
 
 // --- Command-Line Interface Definition ---
 
@@ -29,7 +30,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Runs the main trading bot logic.
+    /// Runs the main trading bot logic in live or paper mode.
     Run,
 
     /// Backfills historical kline data from Binance.
@@ -45,6 +46,26 @@ enum Commands {
         /// Optional start date for backfilling in YYYY-MM-DD format.
         #[arg(long)]
         start_date: Option<String>,
+    },
+    
+    // Add this new subcommand
+    /// Runs a historical backtest of a strategy.
+    Backtest {
+        /// The trading symbol to backtest (e.g., "BTCUSDT").
+        #[arg(short, long)]
+        symbol: String,
+
+        /// The primary interval for the strategy (e.g., "5m", "1h").
+        #[arg(short, long)]
+        interval: String,
+
+        /// The start date for the backtest in YYYY-MM-DD format.
+        #[arg(long)]
+        start_date: String,
+        
+        /// The end date for the backtest in YYYY-MM-DD format.
+        #[arg(long)]
+        end_date: String,
     },
 }
 
@@ -74,6 +95,16 @@ async fn main() -> Result<()> {
             start_date,
         } => {
             handle_backfill(symbol, interval, start_date).await?;
+        }
+
+        Commands::Backtest {
+            symbol,
+            interval,
+            start_date,
+            end_date,
+        } => {
+            // Call our new handler function
+            handle_backtest(symbol, interval, start_date, end_date).await?;
         }
     }
 
@@ -160,13 +191,22 @@ async fn run_app() -> Result<()> {
     //    We need the portfolio value, which we can get from our executor.
     let portfolio_value = executor.portfolio().cash;
     let open_position = executor.portfolio().open_positions.get(&Symbol("BTCUSDT".to_string()));
-    
-    match risk_manager.evaluate(&signal, portfolio_value.to_f64().unwrap(), open_position) {
+    // Create a dummy Kline for the manual test
+    let dummy_kline = Kline {
+        open_time: 0,
+        open: dec!(0),
+        high: dec!(0),
+        low: dec!(0),
+        close: dec!(0),
+        volume: dec!(0),
+        close_time: 0,
+    };
+    match risk_manager.evaluate(&signal, portfolio_value, &dummy_kline, open_position) {
         Ok(Some(order_request)) => {
             tracing::info!(?order_request, "2. Risk Manager approved and created OrderRequest.");
 
             // 5. Pass the OrderRequest to the Executor.
-            match executor.execute(&order_request).await {
+            match executor.execute(&order_request, dec!(50000.0)).await {
                 Ok(execution) => {
                     tracing::info!(?execution, "3. Executor processed order and returned Execution.");
                 }
@@ -247,6 +287,71 @@ async fn handle_backfill(
         current_start_time = Some(klines.last().unwrap().open_time + 1);
         sleep(Duration::from_millis(500)).await;
     }
+
+    Ok(())
+}
+
+/// Handles the logic for the `backtest` subcommand.
+async fn handle_backtest(
+    symbol_str: String,
+    interval: String,
+    start_date: String,
+    end_date: String,
+) -> Result<()> {
+    // --- 1. Initialization & Configuration ---
+    let settings = app_config::load_settings()?;
+    let symbol = Symbol(symbol_str);
+
+    // Parse start and end dates
+    let start_dt = Utc.datetime_from_str(&format!("{} 00:00:00", start_date), "%Y-%m-%d %H:%M:%S")
+        .map_err(|e| anyhow::anyhow!("Failed to parse start date: {}", e))?;
+    let end_dt = Utc.datetime_from_str(&format!("{} 23:59:59", end_date), "%Y-%m-%d %H:%M:%S")
+        .map_err(|e| anyhow::anyhow!("Failed to parse end date: {}", e))?;
+
+    tracing::info!(
+        symbol = %symbol.0,
+        interval,
+        from = %start_date,
+        to = %end_date,
+        "Setting up backtest."
+    );
+    
+    // --- 2. Instantiate All Components ---
+    
+    // Instantiate Risk Manager
+    let risk_manager = match settings.simple_risk_manager {
+        Some(risk_settings) => Box::new(SimpleRiskManager::new(risk_settings)),
+        None => anyhow::bail!("Cannot run backtest: simple_risk_manager settings are missing."),
+    };
+
+    // Instantiate Strategy
+    let strategy = match settings.strategies.ma_crossover {
+        Some(strategy_settings) => Box::new(MACrossover::new(strategy_settings)),
+        None => anyhow::bail!("Cannot run backtest: ma_crossover strategy settings are missing."),
+    };
+
+    // Instantiate Executor
+    let mut executor = match settings.simulation {
+        Some(sim_settings) => Box::new(SimulatedExecutor::new(sim_settings, dec!(10_000.0))),
+        None => anyhow::bail!("Cannot run backtest: simulation settings are missing."),
+    };
+
+    // --- 3. Load Data ---
+    let db = database::connect(&settings.database).await?;
+    tracing::info!("Loading historical data for backtest...");
+    let klines = db.get_klines_by_date_range(&symbol, &interval, start_dt, end_dt).await?;
+    tracing::info!("Loaded {} klines for the specified date range.", klines.len());
+
+    // --- 4. Setup and Run the Backtester ---
+    let mut backtester = Backtester {
+        symbol,
+        interval,
+        strategy,
+        risk_manager,
+        executor,
+    };
+
+    backtester.run(klines).await?;
 
     Ok(())
 }

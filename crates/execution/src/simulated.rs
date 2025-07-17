@@ -73,6 +73,7 @@ impl SimulatedExecutor {
             quantity: order.quantity,
             entry_price: execution_price,
             leverage: order.leverage,
+            sl_price: order.sl_price, // <-- Add this line
         };
 
         // Add the new position to our portfolio's open positions.
@@ -139,24 +140,27 @@ impl Executor for SimulatedExecutor {
         "SimulatedExecutor"
     }
 
+    fn portfolio(&self) -> &Portfolio {
+        &self.portfolio
+    }
+
     /// The public method that fulfills the `Executor` trait contract.
     /// It acts as a router to the appropriate internal simulation logic.
-    async fn execute(&mut self, order_request: &OrderRequest) -> Result<Execution> {
-        // In a real executor, we'd get the current price from a live data feed.
-        // In a backtest, this price would come from the kline of the current bar.
-        // For now, we continue to use a placeholder. This highlights a necessary
-        // parameter that we will need to add to the `execute` method signature later.
-        let current_price = dec!(50_000.0); // Placeholder current price
-
-        // Determine if this is an entry or a closing order.
-        // This logic assumes we are not pyramiding (adding to positions).
+    async fn execute(
+        &mut self,
+        order_request: &OrderRequest,
+        current_price: rust_decimal::Decimal, // <-- Add parameter here
+    ) -> Result<Execution> {
+        // Remove the old placeholder price line:
+        // let current_price = dec!(50_000.0);
+        
+        // The rest of the function logic remains the same, as it now
+        // uses the `current_price` passed into it.
         let is_entry = !self.portfolio.open_positions.contains_key(&order_request.symbol);
 
         if is_entry {
-            // This is an order to open a new position.
             self.process_entry(order_request, current_price)
         } else {
-            // This is an order to close an existing position.
             self.process_close(order_request, current_price)
         }
     }

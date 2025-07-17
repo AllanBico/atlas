@@ -3,4 +3,4 @@ resolver = "2"
 
 members = ["app"
     # We will add our application and library crates here in later tasks
-, "crates/api-client", "crates/app-config", "crates/core-types", "crates/database", "crates/execution", "crates/risk", "crates/strategies", "crates/web-server"]
+, "crates/api-client", "crates/app-config", "crates/backtester", "crates/core-types", "crates/database", "crates/execution", "crates/risk", "crates/strategies", "crates/web-server"]

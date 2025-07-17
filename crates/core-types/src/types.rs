@@ -60,6 +60,8 @@ pub struct Position {
     pub entry_price: Decimal,
     /// The leverage used for this position.
     pub leverage: u8,
+    /// The calculated stop-loss price for this position.
+    pub sl_price: Decimal,
 }
 
 /// Represents a fully-formed request to place an order on the exchange.

@@ -33,7 +33,11 @@ pub trait Executor {
     ///
     /// A `Result` containing the `Execution` details on success, or an `Error`
     /// if the order could not be successfully executed.
-    async fn execute(&mut self, order_request: &OrderRequest) -> Result<Execution>;
+    async fn execute(
+        &mut self,
+        order_request: &OrderRequest,
+        current_price: rust_decimal::Decimal, // <-- Add this parameter
+    ) -> Result<Execution>;
 
     fn portfolio(&self) -> &crate::types::Portfolio {
         unimplemented!("Portfolio view is not supported by this executor.")

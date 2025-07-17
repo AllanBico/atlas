@@ -130,6 +130,7 @@ dependencies = [
  "anyhow",
  "api-client",
  "app-config",
+ "backtester",
  "chrono",
  "clap",
  "config",
@@ -203,6 +204,22 @@ name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
+
+[[package]]
+name = "backtester"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "core-types",
+ "execution",
+ "num-traits",
+ "risk",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "strategies",
+ "tracing",
+]
 
 [[package]]
 name = "backtrace"
@@ -573,6 +590,7 @@ version = "0.1.0"
 dependencies = [
  "app-config",
  "bigdecimal",
+ "chrono",
  "core-types",
  "sqlx",
  "thiserror",

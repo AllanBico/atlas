@@ -1,6 +1,6 @@
 // In crates/risk/src/lib.rs (REPLACE ENTIRE FILE)
 
-use core_types::{OrderRequest, Position, Signal};
+use core_types::{OrderRequest, Position, Signal, Kline};
 pub mod simple_manager;
 
 pub mod error;
@@ -35,7 +35,8 @@ pub trait RiskManager {
     fn evaluate(
         &self,
         signal: &Signal,
-        portfolio_value: f64, // Using f64 for simplicity in risk calculations
+        portfolio_value: rust_decimal::Decimal,
+        current_kline: &Kline,
         open_position: Option<&Position>,
     ) -> Result<Option<OrderRequest>>;
 }

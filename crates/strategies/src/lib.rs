@@ -1,7 +1,7 @@
 // In crates/strategies/src/lib.rs (REPLACE ENTIRE FILE)
 
 use core_types::{Kline, Signal};
-
+pub mod ma_crossover;
 pub mod error;
 pub mod types;
 

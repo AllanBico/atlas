@@ -1,7 +1,6 @@
 use crate::types::MACrossoverSettings;
 use crate::{Signal, Strategy};
 use core_types::Kline;
-use rust_decimal::prelude::*;
 use ta::indicators::ExponentialMovingAverage as Ema;
 use ta::Next; // Import the `Next` trait to use the `.next()` method on indicators.
 use num_traits::ToPrimitive; // <-- Add this import for to_f64

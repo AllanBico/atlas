@@ -9,12 +9,23 @@ use chrono::{DateTime, Utc};
 use serde_json::Value as JsonValue; 
 use analytics::types::PerformanceReport;
 use analytics::types::Trade; // Add this
+use serde::Serialize;
+
+/// A struct to fetch the report along with its parameters
+#[derive(Debug, Serialize)]
+pub struct FullReport {
+    pub parameters: JsonValue,
+    pub report: PerformanceReport,
+}
 
 pub mod error;
 pub mod types;
 
 // Re-export the most important types for easy access.
 pub use error::{Error, Result};
+
+// This type needs to be available to our `app` crate.
+// pub use analyzer::RankedReport; // Re-export for convenience (REMOVED)
 
 /// A wrapper around the `sqlx` connection pool.
 #[derive(Debug, Clone)]
@@ -155,6 +166,7 @@ impl Db {
     /// A `Result` containing the ID of the new backtest run on success.
     pub async fn save_backtest_report<T: serde::Serialize>(
         &self,
+        job_id: Option<i64>, // <-- Add this parameter
         strategy_name: &str,
         symbol: &Symbol,
         interval: &str,
@@ -173,10 +185,11 @@ impl Db {
         // --- 3. Insert into `backtest_runs` and get the new ID ---
         let run_id: i64 = sqlx::query!(
             r#"
-            INSERT INTO backtest_runs (strategy_name, symbol, interval, start_date, end_date, parameters)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO backtest_runs (job_id, strategy_name, symbol, interval, start_date, end_date, parameters)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id
             "#,
+            job_id, // <-- Bind the new parameter
             strategy_name,
             symbol.0,
             interval,
@@ -272,6 +285,90 @@ impl Db {
             .map_err(Error::OperationFailed)?;
         }
         tx.commit().await.map_err(Error::OperationFailed)?;
+        Ok(())
+    }
+
+    /// Creates a new optimization job entry and returns its ID.
+    pub async fn create_optimization_job(&self, name: &str) -> Result<i64> {
+        let record = sqlx::query!(
+            "INSERT INTO optimization_jobs (name) VALUES ($1) RETURNING id",
+            name
+        )
+        .fetch_one(&self.0)
+        .await
+        .map_err(Error::OperationFailed)?;
+
+        Ok(record.id)
+    }
+
+    /// Fetches all performance reports associated with a given optimization job ID.
+    pub async fn get_reports_for_job(&self, job_id: i64) -> Result<Vec<FullReport>> {
+        let records = sqlx::query!(
+            r#"
+            SELECT br.parameters, pr.net_pnl_absolute, pr.net_pnl_percentage, pr.max_drawdown_absolute, pr.max_drawdown_percentage, pr.sharpe_ratio, pr.win_rate, pr.profit_factor, pr.total_trades, pr.sortino_ratio, pr.calmar_ratio, pr.avg_trade_duration_secs, pr.expectancy, pr.confidence_performance, pr.larom, pr.funding_pnl, pr.drawdown_duration_secs
+            FROM performance_reports pr
+            JOIN backtest_runs br ON pr.run_id = br.id
+            WHERE br.job_id = $1
+            "#,
+            job_id
+        )
+        .fetch_all(&self.0)
+        .await
+        .map_err(Error::OperationFailed)?;
+
+        let full_reports = records.into_iter().map(|r| {
+            let report = PerformanceReport {
+                net_pnl_absolute: r.net_pnl_absolute.to_string().parse().unwrap_or_default(),
+                net_pnl_percentage: r.net_pnl_percentage,
+                max_drawdown_absolute: r.max_drawdown_absolute.to_string().parse().unwrap_or_default(),
+                max_drawdown_percentage: r.max_drawdown_percentage,
+                sharpe_ratio: r.sharpe_ratio,
+                win_rate: r.win_rate,
+                profit_factor: r.profit_factor,
+                total_trades: r.total_trades as u32,
+                sortino_ratio: r.sortino_ratio,
+                calmar_ratio: r.calmar_ratio,
+                avg_trade_duration_secs: r.avg_trade_duration_secs as f64,
+                expectancy: r.expectancy.to_string().parse().unwrap_or_default(),
+                confidence_performance: serde_json::from_value(r.confidence_performance.unwrap_or_default()).unwrap_or_default(),
+                larom: r.larom,
+                funding_pnl: r.funding_pnl.to_string().parse().unwrap_or_default(),
+                drawdown_duration_secs: r.drawdown_duration_secs,
+            };
+            FullReport {
+                parameters: r.parameters,
+                report,
+            }
+        }).collect();
+
+        Ok(full_reports)
+    }
+
+    pub async fn get_latest_job_id(&self) -> Result<i64> {
+        let record = sqlx::query!("SELECT id FROM optimization_jobs ORDER BY id DESC LIMIT 1")
+            .fetch_one(&self.0)
+            .await
+            .map_err(Error::OperationFailed)?;
+        Ok(record.id)
+    }
+
+    pub async fn save_optimization_summary<T: Serialize>(
+        &self,
+        job_id: i64,
+        top_n_results: &[T], // Takes a slice of the ranked results
+    ) -> Result<()> {
+        let results_json: JsonValue = serde_json::to_value(top_n_results)
+            .map_err(|e| Error::OperationFailed(sqlx::Error::Decode(e.into())))?;
+
+        sqlx::query!(
+            "INSERT INTO optimization_summaries (job_id, top_n_results) VALUES ($1, $2)",
+            job_id,
+            results_json
+        )
+        .execute(&self.0)
+        .await
+        .map_err(Error::OperationFailed)?;
+
         Ok(())
     }
 }

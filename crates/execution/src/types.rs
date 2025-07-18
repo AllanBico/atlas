@@ -2,6 +2,7 @@
 
 use serde::Deserialize;
 
+#[derive(Clone)]
 #[derive(Debug, Deserialize)]
 pub struct SimulationSettings {
     /// The maker fee for the exchange (e.g., 0.0002 for 0.02%).

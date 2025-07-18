@@ -1,0 +1,28 @@
+# In config/optimizer.toml.example
+#
+# Configuration for a strategy optimization job.
+# Copy this file to `optimizer.toml` to run a job.
+
+[job]
+# Name for this optimization job, for easier identification in the database.
+name = "MA Crossover BTCUSDT H1 - Q1 2023"
+symbol = "BTCUSDT"
+interval = "1h"
+start_date = "2024-01-01T00:00:00"
+end_date = "2024-03-31T23:59:59"
+
+# Define which strategy to optimize. The key must match a strategy in the code.
+strategy_to_optimize = "ma_crossover"
+
+# Define the parameter ranges to iterate over for the specified strategy.
+# The keys here must match the field names in the strategy's settings struct.
+[ma_crossover_params]
+# Format: { start = X, end = Y, step = Z }
+# `step` is optional and defaults to 1.
+m5_fast_period = { start = 5, end = 50, step = 5 } 
+m5_slow_period = { start = 10, end = 50, step = 5 } 
+
+# You can also fix parameters by setting them directly.
+h1_fast_period = { start = 50, end = 300, step = 50 } 
+h1_slow_period = { start = 100, end = 500, step =100 } 
+confidence = 0.75

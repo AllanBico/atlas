@@ -10,12 +10,19 @@ use risk::RiskManager;
 use strategies::ma_crossover::MACrossover;
 use strategies::Strategy;
 use std::time::Duration;
+mod optimizer;
 use tokio::time::sleep;
 use execution::simulated::SimulatedExecutor;
 use execution::Executor;
 use rust_decimal_macros::dec; // For our test portfolio
 use core_types::Signal;
 use backtester::Backtester;
+mod analyzer;
+use crate::analyzer::RankedReport;
+use crate::optimizer::{generate_parameter_sets, load_optimizer_config, run_optimization};
+use std::time::Instant;
+use serde_json;
+use tokio::task;
 // --- Command-Line Interface Definition ---
 
 #[derive(Parser, Debug)]
@@ -64,6 +71,9 @@ enum Commands {
         #[arg(long)]
         end_date: String,
     },
+    
+    /// Runs a full parameter optimization job.
+    Optimize,
 }
 
 // --- Main Application Entry Point ---
@@ -102,6 +112,9 @@ async fn main() -> Result<()> {
         } => {
             // Call our new handler function
             handle_backtest(symbol, interval, start_date, end_date).await?;
+        }
+        Commands::Optimize => {
+            handle_optimize().await?;
         }
     }
 
@@ -356,6 +369,7 @@ async fn handle_backtest(
         tracing::info!("Saving backtest report to the database...");
         
         let run_id = db.save_backtest_report(
+            None, // job_id
             "MultiTimeframeMACrossover", // Strategy Name
             &symbol,
             &interval,
@@ -376,4 +390,67 @@ async fn handle_backtest(
     }
 
     Ok(())
+}
+
+/// Handles the logic for the `optimize` subcommand.
+async fn handle_optimize() -> Result<()> {
+    // ... load configs and generate param_sets (this is fast) ...
+    let start_time = Instant::now();
+    tracing::info!("Starting optimization job...");
+
+    let optimizer_config = load_optimizer_config()?;
+    let app_settings = app_config::load_settings()?.app;
+    let param_sets = generate_parameter_sets(&optimizer_config);
+    if param_sets.is_empty() {
+        anyhow::bail!("No valid parameter sets were generated.");
+    }
+
+    // Create the DB connection and job ID in the async context
+    let db = database::connect(&app_config::load_settings()?.database).await?;
+    let job_id = db.create_optimization_job(&optimizer_config.job.name).await?;
+    tracing::info!(job_id, "Created parent optimization job.");
+
+    // Now, move the heavy, parallel work to a blocking thread.
+    task::spawn_blocking(move || {
+        run_optimization(&app_settings, &optimizer_config.job, param_sets, job_id)
+    }).await??;
+    
+    // 3. Analyze the results (this is fast, can be done on the main thread).
+    let db = database::connect(&app_config::load_settings()?.database).await?;
+    let ranked_results = analyzer::analyze_and_rank_results(&db, job_id).await?;
+
+    print_optimization_report(&ranked_results);
+    
+    tracing::info!(duration = ?start_time.elapsed(), "Optimization job and analysis finished.");
+    Ok(())
+}
+
+/// Helper function to print the final optimization summary.
+fn print_optimization_report(results: &[RankedReport]) {
+    println!("\n--- Optimization Job Complete ---");
+    println!("---------------------------------");
+    println!("Top 5 Parameter Sets by Score:");
+    println!("---------------------------------");
+
+    for (i, ranked_report) in results.iter().take(5).enumerate() {
+        println!("\n[Rank {} | Score: {:.2}]", i + 1, ranked_report.score);
+        println!("  - Parameters: {}", serde_json::to_string_pretty(&ranked_report.report.parameters).unwrap_or_default());
+        
+        let report = &ranked_report.report.report;
+        println!("  - P&L: ${:.2} ({:.2}%) | Max Drawdown: {:.2}% | Sharpe: {:.2} | Trades: {}",
+            report.net_pnl_absolute,
+            report.net_pnl_percentage,
+            report.max_drawdown_percentage,
+            report.sharpe_ratio,
+            report.total_trades
+        );
+    }
+    println!("\n---------------------------------");
+    
+    if let Some(best) = results.first() {
+        println!("Recommendation: The parameter set with the highest score is:");
+        println!("  {}", serde_json::to_string_pretty(&best.report.parameters).unwrap_or_default());
+    } else {
+        println!("Recommendation: No parameter sets passed the minimum threshold.");
+    }
 }

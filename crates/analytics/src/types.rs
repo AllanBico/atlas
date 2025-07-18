@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use core_types::{Side, Symbol};
 use rust_decimal::Decimal;
 use serde::Serialize;
+use serde::Deserialize;
 use std::collections::HashMap;
 
 /// A comprehensive record of a single closed trade, from entry to exit.
@@ -33,7 +34,7 @@ pub struct EquityPoint {
 pub type ConfidenceBucketPerformance = HashMap<String, PerformanceReport>;
 
 /// A comprehensive report of a strategy's performance over a backtest period.
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PerformanceReport {
     // Tier 1 Metrics
     pub net_pnl_absolute: Decimal,

@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct SimpleRiskSettings {
     /// The percentage of the total portfolio to risk on a single trade (e.g., 0.01 for 1%).
     pub risk_per_trade_percent: f64,

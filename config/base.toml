@@ -5,7 +5,8 @@
 [app]
 environment = "development"
 log_level = "debug"
-
+# Default to using all available cores.
+optimizer_cores = 0
 [database]
 # The database URL will be provided by environment-specific files or env vars.
 # We put a dummy value here as a placeholder.

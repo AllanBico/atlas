@@ -31,6 +31,8 @@ pub struct AppSettings {
     pub environment: String,
     /// The log level for the application.
     pub log_level: String,
+
+    pub optimizer_cores: u32,
 }
 
 #[derive(Deserialize, Debug)]

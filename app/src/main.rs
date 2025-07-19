@@ -344,19 +344,19 @@ async fn handle_backtest(
     // Instantiate Strategy
     let strategy: Box<dyn Strategy> = match strategy_name.as_str() {
         "ma_crossover" => {
-            let settings = settings.strategies.ma_crossover
+            let settings = settings.strategies.ma_crossover.as_ref()
                 .ok_or_else(|| anyhow::anyhow!("ma_crossover strategy settings are missing."))?;
-            Box::new(MACrossover::new(settings))
+            Box::new(MACrossover::new(settings.clone()))
         }
         "supertrend" => {
-            let settings = settings.strategies.supertrend
+            let settings = settings.strategies.supertrend.as_ref()
                 .ok_or_else(|| anyhow::anyhow!("supertrend strategy settings are missing."))?;
-            Box::new(strategies::supertrend::SuperTrend::new(settings))
+            Box::new(strategies::supertrend::SuperTrend::new(settings.clone()))
         }
         "prob_reversion" => {
-            let settings = settings.strategies.prob_reversion
+            let settings = settings.strategies.prob_reversion.as_ref()
                 .ok_or_else(|| anyhow::anyhow!("prob_reversion strategy settings are missing."))?;
-            Box::new(strategies::prob_reversion::ProbReversion::new(settings))
+            Box::new(strategies::prob_reversion::ProbReversion::new(settings.clone()))
         }
         _ => anyhow::bail!("Unknown strategy: {}", strategy_name),
     };
@@ -388,9 +388,9 @@ async fn handle_backtest(
     // --- 5. Save the Results to the Database ---
     // Save the correct strategy settings
     let strategy_settings_json = match strategy_name.as_str() {
-        "ma_crossover" => settings.strategies.ma_crossover.map(|s| serde_json::to_value(s).unwrap()),
-        "supertrend" => settings.strategies.supertrend.map(|s| serde_json::to_value(s).unwrap()),
-        "prob_reversion" => settings.strategies.prob_reversion.map(|s| serde_json::to_value(s).unwrap()),
+        "ma_crossover" => settings.strategies.ma_crossover.as_ref().map(|s| serde_json::to_value(s).unwrap()),
+        "supertrend" => settings.strategies.supertrend.as_ref().map(|s| serde_json::to_value(s).unwrap()),
+        "prob_reversion" => settings.strategies.prob_reversion.as_ref().map(|s| serde_json::to_value(s).unwrap()),
         _ => None,
     };
     if let Some(strategy_settings) = strategy_settings_json {

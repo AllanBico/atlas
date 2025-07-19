@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 // Import the settings struct from our strategies crate
-use strategies::types::MACrossoverSettings;
+use strategies::types::{MACrossoverSettings, ProbReversionSettings, SuperTrendSettings};
 use risk::types::SimpleRiskSettings;
 use execution::types::SimulationSettings;
 
@@ -56,4 +56,6 @@ pub struct StrategySettings {
     pub ma_crossover: Option<MACrossoverSettings>,
     // In the future, we could add:
     // pub rsi_reversal: Option<RSIReversalSettings>,
+    pub supertrend: Option<SuperTrendSettings>, 
+    pub prob_reversion: Option<ProbReversionSettings>,
 }

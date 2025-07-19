@@ -21,14 +21,33 @@ leverage = 10
 stop_loss_percent = 0.02
 
 # The minimum signal confidence required to consider a trade (60% = 0.60)
-minimum_confidence_threshold = 0.60
+minimum_confidence_threshold =0
 
-[strategies.ma_crossover]
-h1_fast_period = 10
-h1_slow_period = 30
-m5_fast_period = 5
-m5_slow_period = 20
-confidence = 0.8
+# [strategies.ma_crossover]
+# h1_fast_period = 5
+# h1_slow_period = 40
+# m5_fast_period = 10
+# m5_slow_period = 20
+# confidence = 1
+
+# [strategies.supertrend]
+# period = 45
+# multiplier = 2.0
+# exit_multiplier = 1.5
+# volume_threshold = 1000.0 # Min volume of base asset (e.g., BTC) per bar
+# confirmation_bars = 1
+# ema_confirmation_period = 20
+# confidence = 0.30 # 80%
+
+[strategies.prob_reversion]
+bband_period = 20
+bband_stddev = 2.0
+adx_period = 14
+adx_range_threshold = 25.0 # Only trade if ADX is below this (ranging market)
+rsi_period = 14
+rsi_smoothing = 3 # SMA of RSI
+rsi_oversold = 25.0 # RSI level to start looking for a buy
+confidence = 0.20 # 90%
 
 [simulation]
 # Binance Futures VIP 0 fees: 0.02% maker, 0.04% taker

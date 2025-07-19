@@ -10,7 +10,7 @@ use num_traits::ToPrimitive;
 mod logger;
 use logger::TradeLogger;
 use analytics::engine::AnalyticsEngine;
-use analytics::types::{PerformanceReport, Trade};
+use analytics::types::{EquityPoint, PerformanceReport, Trade};
 
 /// The main engine for running historical backtests.
 pub struct Backtester {
@@ -48,7 +48,7 @@ impl Backtester {
     }
 
     // Change the return type from anyhow::Result<()> to anyhow::Result<PerformanceReport>
-    pub async fn run(&mut self, klines: Vec<Kline>) -> anyhow::Result<(PerformanceReport, Vec<Trade>)> {
+    pub async fn run(&mut self, klines: Vec<Kline>) -> anyhow::Result<(PerformanceReport, Vec<Trade>, Vec<EquityPoint>)> {
         for i in KLINE_HISTORY_SIZE..klines.len() {
             let current_kline = &klines[i];
             let history_slice = &klines[(i - KLINE_HISTORY_SIZE)..i];
@@ -155,7 +155,7 @@ impl Backtester {
         print_report(&report);
 
         // Return the calculated report and the trade log
-        Ok((report, self.logger.trades.clone()))
+        Ok((report, self.logger.trades.clone(), self.logger.equity_curve.clone()))
     }
 }
 

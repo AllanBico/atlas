@@ -7,12 +7,12 @@
 # Name for this optimization job, for easier identification in the database.
 name = "MA Crossover BTCUSDT H1 - Q1 2023"
 symbol = "BTCUSDT"
-interval = "1h"
-start_date = "2024-01-01T00:00:00"
-end_date = "2024-03-31T23:59:59"
+interval = "5m"
+start_date = "2025-01-01T00:00:00"
+end_date = "2025-05-31T23:59:59"
 
 # Define which strategy to optimize. The key must match a strategy in the code.
-strategy_to_optimize = "ma_crossover"
+strategy_to_optimize = "prob_reversion"
 
 # Define the parameter ranges to iterate over for the specified strategy.
 # The keys here must match the field names in the strategy's settings struct.
@@ -26,3 +26,22 @@ m5_slow_period = { start = 10, end = 50, step = 5 }
 h1_fast_period = { start = 50, end = 300, step = 50 } 
 h1_slow_period = { start = 100, end = 500, step =100 } 
 confidence = 0.75
+
+[supertrend_params]
+period = { start = 10, end = 60, step = 10 }
+multiplier = { start = 1.5, end = 2.5, step = 0.5 } # It now supports floats!
+exit_multiplier = { start = 1.5, end = 2.5, step = 0.5 }
+volume_threshold = 1000.0
+confirmation_bars = 2
+ema_confirmation_period = 20
+confidence = 0.30
+
+[prob_reversion_params]
+bband_period = { start = 18, end = 22 }
+bband_stddev = { start = 1.5, end = 2.5, step = 0.1 }
+adx_period = { start = 10, end = 20, step = 2 }
+adx_range_threshold = { start = 20.0, end = 30.0, step = 2.5 }
+rsi_period = { start = 10, end = 20, step = 2 }
+rsi_smoothing = { start = 2, end = 5 }
+rsi_oversold = { start = 20.0, end = 30.0, step = 2.5 }
+confidence = 1

@@ -19,7 +19,7 @@ use core_types::Signal;
 use backtester::Backtester;
 mod analyzer;
 use crate::analyzer::RankedReport;
-use crate::optimizer::{generate_parameter_sets, load_optimizer_config, run_optimization};
+use crate::optimizer::{generate_generic_parameter_sets, load_optimizer_config, run_optimization};
 use std::time::Instant;
 use serde_json;
 use tokio::task;
@@ -70,6 +70,10 @@ enum Commands {
         /// The end date for the backtest in YYYY-MM-DD format.
         #[arg(long)]
         end_date: String,
+
+        /// The strategy to use for the backtest (e.g., "ma_crossover", "supertrend", "prob_reversion").
+        #[arg(long)]
+        strategy: String,
     },
     
     /// Runs a full parameter optimization job.
@@ -109,9 +113,10 @@ async fn main() -> Result<()> {
             interval,
             start_date,
             end_date,
+            strategy,
         } => {
             // Call our new handler function
-            handle_backtest(symbol, interval, start_date, end_date).await?;
+            handle_backtest(symbol, interval, start_date, end_date, strategy).await?;
         }
         Commands::Optimize => {
             handle_optimize().await?;
@@ -307,6 +312,7 @@ async fn handle_backtest(
     interval: String,
     start_date: String,
     end_date: String,
+    strategy_name: String,
 ) -> Result<()> {
     // --- 1. Initialization & Configuration ---
     let settings = app_config::load_settings()?;
@@ -323,6 +329,7 @@ async fn handle_backtest(
         interval,
         from = %start_date,
         to = %end_date,
+        strategy = %strategy_name,
         "Setting up backtest."
     );
     
@@ -335,9 +342,23 @@ async fn handle_backtest(
     };
 
     // Instantiate Strategy
-    let strategy = match settings.strategies.ma_crossover {
-        Some(ref strategy_settings) => Box::new(MACrossover::new(strategy_settings.clone())),
-        None => anyhow::bail!("Cannot run backtest: ma_crossover strategy settings are missing."),
+    let strategy: Box<dyn Strategy> = match strategy_name.as_str() {
+        "ma_crossover" => {
+            let settings = settings.strategies.ma_crossover
+                .ok_or_else(|| anyhow::anyhow!("ma_crossover strategy settings are missing."))?;
+            Box::new(MACrossover::new(settings))
+        }
+        "supertrend" => {
+            let settings = settings.strategies.supertrend
+                .ok_or_else(|| anyhow::anyhow!("supertrend strategy settings are missing."))?;
+            Box::new(strategies::supertrend::SuperTrend::new(settings))
+        }
+        "prob_reversion" => {
+            let settings = settings.strategies.prob_reversion
+                .ok_or_else(|| anyhow::anyhow!("prob_reversion strategy settings are missing."))?;
+            Box::new(strategies::prob_reversion::ProbReversion::new(settings))
+        }
+        _ => anyhow::bail!("Unknown strategy: {}", strategy_name),
     };
 
     // Instantiate Executor
@@ -361,16 +382,22 @@ async fn handle_backtest(
         executor,
     );
 
-    // This now returns the final performance report and the trade log
-    let (report, trades) = backtester.run(klines).await?;
+    // This now returns the final performance report, the trade log, and the equity curve
+    let (report, trades, equity_curve) = backtester.run(klines).await?;
 
     // --- 5. Save the Results to the Database ---
-    if let Some(ref strategy_settings) = settings.strategies.ma_crossover {
+    // Save the correct strategy settings
+    let strategy_settings_json = match strategy_name.as_str() {
+        "ma_crossover" => settings.strategies.ma_crossover.map(|s| serde_json::to_value(s).unwrap()),
+        "supertrend" => settings.strategies.supertrend.map(|s| serde_json::to_value(s).unwrap()),
+        "prob_reversion" => settings.strategies.prob_reversion.map(|s| serde_json::to_value(s).unwrap()),
+        _ => None,
+    };
+    if let Some(strategy_settings) = strategy_settings_json {
         tracing::info!("Saving backtest report to the database...");
-        
         let run_id = db.save_backtest_report(
             None, // job_id
-            "MultiTimeframeMACrossover", // Strategy Name
+            &strategy_name,
             &symbol,
             &interval,
             start_dt,
@@ -378,12 +405,12 @@ async fn handle_backtest(
             &strategy_settings, // The strategy's parameters
             &report,            // The calculated performance report
         ).await?;
-        
-        // Add this new block
         tracing::info!(trade_count = trades.len(), "Saving individual trades to the database...");
         db.save_trades(run_id, &trades).await?;
         tracing::info!("Individual trades saved successfully.");
-
+        tracing::info!(point_count = equity_curve.len(), "Saving equity curve to the database...");
+        db.save_equity_curve(run_id, &equity_curve).await?;
+        tracing::info!("Equity curve saved successfully.");
         tracing::info!(run_id, "Backtest run and all associated data saved.");
     } else {
         tracing::warn!("Could not find strategy settings to save with the report.");
@@ -400,7 +427,7 @@ async fn handle_optimize() -> Result<()> {
 
     let optimizer_config = load_optimizer_config()?;
     let app_settings = app_config::load_settings()?.app;
-    let param_sets = generate_parameter_sets(&optimizer_config);
+    let param_sets = generate_generic_parameter_sets(&optimizer_config)?;
     if param_sets.is_empty() {
         anyhow::bail!("No valid parameter sets were generated.");
     }

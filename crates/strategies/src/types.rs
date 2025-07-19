@@ -15,3 +15,26 @@ pub struct MACrossoverSettings {
     // The confidence score to assign to signals from this strategy
     pub confidence: f64,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)] // Clone is needed for the optimizer
+pub struct SuperTrendSettings {
+    pub period: u32,
+    pub multiplier: f64,
+    pub exit_multiplier: f64,
+    pub volume_threshold: f64,
+    pub confirmation_bars: u32,
+    pub ema_confirmation_period: u32,
+    pub confidence: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProbReversionSettings {
+    pub bband_period: u32,
+    pub bband_stddev: f64,
+    pub adx_period: u32,
+    pub adx_range_threshold: f64,
+    pub rsi_period: u32,
+    pub rsi_oversold: f64,
+    pub rsi_smoothing: u32,
+    pub confidence: f64,
+}

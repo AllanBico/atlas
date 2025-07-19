@@ -10,6 +10,7 @@ use serde_json::Value as JsonValue;
 use analytics::types::PerformanceReport;
 use analytics::types::Trade; // Add this
 use serde::Serialize;
+use analytics::types::EquityPoint;
 
 /// A struct to fetch the report along with its parameters
 #[derive(Debug, Serialize)]
@@ -369,6 +370,26 @@ impl Db {
         .await
         .map_err(Error::OperationFailed)?;
 
+        Ok(())
+    }
+
+    pub async fn save_equity_curve(&self, run_id: i64, equity_curve: &[EquityPoint]) -> Result<()> {
+        if equity_curve.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self.0.begin().await.map_err(Error::OperationFailed)?;
+        for point in equity_curve {
+            sqlx::query!(
+                "INSERT INTO equity_curves (run_id, timestamp, equity) VALUES ($1, $2, $3)",
+                run_id,
+                point.timestamp,
+                BigDecimal::from_str(&point.value.to_string()).unwrap()
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::OperationFailed)?;
+        }
+        tx.commit().await.map_err(Error::OperationFailed)?;
         Ok(())
     }
 }

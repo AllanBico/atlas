@@ -4,7 +4,8 @@ use core_types::{Kline, Signal};
 pub mod ma_crossover;
 pub mod error;
 pub mod types;
-
+pub mod supertrend;
+pub mod prob_reversion;
 /// The universal interface for a trading strategy.
 ///
 /// A strategy is responsible for analyzing market data and producing a trading `Signal`.

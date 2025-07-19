@@ -167,7 +167,13 @@ fn run_single_backtest_and_save(
         let symbol = Symbol(job_settings.symbol.clone());
         let interval = job_settings.interval.clone();
         let risk_manager = Box::new(SimpleRiskManager::new(main_settings.simple_risk_manager.clone().unwrap()));
-        let executor = Box::new(SimulatedExecutor::new(main_settings.simulation.clone().unwrap(), dec!(10_000.0)));
+        let dummy_settings = execution::types::SimulationSettings {
+            maker_fee: 0.0,
+            taker_fee: 0.0,
+            slippage_percent: 0.0,
+        };
+        let (dummy_ws_tx, _) = tokio::sync::broadcast::channel(1);
+        let executor = Box::new(SimulatedExecutor::new(dummy_settings, dec!(10_000.0), dummy_ws_tx));
 
         // Instantiate the correct strategy based on strategy_name and param type
         let strategy: Box<dyn strategies::Strategy> = match strategy_name {

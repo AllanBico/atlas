@@ -1,22 +1,30 @@
 // In crates/web-server/src/lib.rs (REPLACE ENTIRE FILE)
 
 use axum::{
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        State,Query
+    },
+    response::IntoResponse,
     routing::get,
     Router,
-    extract::{Query, State},
     response::Json,
+    Extension,
 };
+use futures::{sink::SinkExt, stream::StreamExt}; // for websocket send/receive
 use database::{Db, BacktestRun};
-use std::sync::Arc;
-use tokio::net::TcpListener;
-use tower_http::cors::{Any, CorsLayer};
-use tower_http::trace::TraceLayer;
-use tracing::info;
-use types::{PaginatedResponse, PaginationParams};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+use tokio::sync::broadcast;
+use types::{PaginatedResponse, PaginationParams, WsMessage};
 use app_config::types::ServerSettings; // Import the new settings
+use tokio::net::TcpListener;
 
 pub mod error;
 pub mod types;
+
+// WebSocket message replay cache type
+type WsCache = Arc<Mutex<VecDeque<WsMessage>>>;
 
 // Re-export our custom error type for convenience.
 pub use error::{Error, Result};
@@ -27,7 +35,11 @@ pub use error::{Error, Result};
 #[derive(Clone)]
 pub struct AppState {
     pub db: Db,
+    pub ws_tx: broadcast::Sender<WsMessage>, // For broadcasting live messages
+    pub ws_cache: WsCache,                   // For replaying recent messages
 }
+
+const WS_CACHE_SIZE: usize = 200; // The maximum number of messages to keep in the replay cache.
 
 // We will add the `create_router` and `run` functions in the next tasks.
 
@@ -43,10 +55,10 @@ pub struct AppState {
 pub fn create_router(app_state: AppState) -> Router {
     // Define a CORS layer to allow requests from our frontend.
     // In a production environment, you would restrict the origin to your actual frontend domain.
-    let cors = CorsLayer::new()
-        .allow_origin(Any) // For development, allow any origin
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = tower_http::cors::CorsLayer::new()
+        .allow_origin(tower_http::cors::Any) // For development, allow any origin
+        .allow_methods(tower_http::cors::Any)
+        .allow_headers(tower_http::cors::Any);
 
     // Define the API sub-router
     let api_router = Router::new()
@@ -54,12 +66,13 @@ pub fn create_router(app_state: AppState) -> Router {
 
     // The main router.
     Router::new()
+        // Add the new WebSocket route here
+        .route("/ws", get(ws_handler))
         .route("/health", get(health_check_handler))
-        // Nest the API router under the `/api` prefix
         .nest("/api", api_router)
-        .layer(TraceLayer::new_for_http()) // Logs incoming requests and responses
-        .layer(cors) // Allows cross-origin requests
-        .with_state(app_state) // Makes the AppState available to all handlers
+        .layer(tower_http::trace::TraceLayer::new_for_http())
+        .layer(cors)
+        .with_state(app_state)
 }
 
 /// A simple health check handler.
@@ -90,27 +103,99 @@ async fn get_backtest_runs_handler(
     Ok(Json(response))
 }
 
+/// The handler for `GET /ws`.
+/// Upgrades the connection to a WebSocket and handles the real-time communication.
+async fn ws_handler(
+    ws: axum::extract::ws::WebSocketUpgrade,
+    State(state): axum::extract::State<AppState>,
+) -> impl axum::response::IntoResponse {
+    ws.on_upgrade(|socket| handle_socket(socket, state))
+}
+
+/// The actual WebSocket handling logic after the connection is upgraded.
+async fn handle_socket(mut socket: WebSocket, state: AppState) {
+    tracing::info!("New WebSocket client connected.");
+
+    // --- 1. The "Replay" ---
+    // Get a lock on the cache and clone all historical messages to a local vector.
+    let replay_msgs: Vec<_> = {
+        let cache = state.ws_cache.lock().unwrap();
+        cache.iter().cloned().collect()
+    };
+    for msg in replay_msgs {
+        let json_msg = serde_json::to_string(&msg).unwrap();
+        if socket.send(Message::Text(json_msg.into())).await.is_err() {
+            // Client disconnected before replay was finished.
+            tracing::info!("WebSocket client disconnected during replay.");
+            return;
+        }
+    }
+
+    // --- 2. "Going Live" ---
+    // Subscribe to the broadcast channel to receive new, live messages.
+    let mut rx = state.ws_tx.subscribe();
+
+    // The main loop for this client.
+    loop {
+        tokio::select! {
+            // Await a new message from the broadcast channel.
+            Ok(msg) = rx.recv() => {
+                // Serialize the message to JSON and send it.
+                let json_msg = serde_json::to_string(&msg).unwrap();
+                if socket.send(Message::Text(json_msg.into())).await.is_err() {
+                    // Client disconnected. Break the loop.
+                    tracing::info!("WebSocket client disconnected.");
+                    break;
+                }
+            }
+            // Await a message from the client (e.g., a ping or a command).
+            Some(Ok(msg)) = socket.next() => {
+                if let Message::Close(_) = msg {
+                    // Client sent a close frame.
+                    tracing::info!("WebSocket client sent close frame.");
+                    break;
+                }
+                // We can handle incoming messages here if we add client-to-server commands.
+            }
+            // If both channels are closed, the select macro will terminate.
+            else => {
+                break;
+            }
+        }
+    }
+    tracing::info!("WebSocket client connection closed.");
+}
+
 /// The main entry point for running the web server.
 ///
 /// This function sets up the TCP listener and serves the application router.
 /// It will run forever until the process is terminated.
 pub async fn run(settings: ServerSettings, db_pool: Db) -> Result<()> {
-    let app_state = AppState { db: db_pool };
+    // 1. Create the broadcast channel.
+    //    The channel capacity should be large enough to handle bursts.
+    let (ws_tx, _) = broadcast::channel(1024);
+
+    // 2. Create the WebSocket replay cache.
+    let ws_cache = Arc::new(Mutex::new(VecDeque::with_capacity(WS_CACHE_SIZE)));
+    
+    // 3. Create the AppState.
+    let app_state = AppState {
+        db: db_pool,
+        ws_tx,
+        ws_cache,
+    };
+    
+    // 4. Create and run the router.
     let app = create_router(app_state);
 
     let address = format!("{}:{}", settings.host, settings.port);
     tracing::info!("Web server listening on {}", address);
 
-    let listener = TcpListener::bind(&address).await.map_err(|e| {
-        tracing::error!("Failed to bind to address {}: {}", address, e);
-        // This is a custom error conversion, since TcpListener::bind doesn't return our error type.
-        // We can add a new variant to our error enum for this.
-        Error::ServerBindError(e)
-    })?;
+    let listener = TcpListener::bind(&address).await.map_err(Error::ServerBindError)?;
 
     axum::serve(listener, app.into_make_service())
         .await
-        .unwrap(); // `serve` can return an error, for now we unwrap.
+        .unwrap();
 
     Ok(())
 }

@@ -23,6 +23,13 @@ use crate::optimizer::{generate_generic_parameter_sets, load_optimizer_config, r
 use std::time::Instant;
 use serde_json;
 use tokio::task;
+use tracing_subscriber::prelude::*;
+use events::WsMessage;
+use self::tracing_layer::WsBroadcastLayer;
+use tokio::sync::broadcast;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+mod tracing_layer;
 // --- Command-Line Interface Definition ---
 
 #[derive(Parser, Debug)]
@@ -83,8 +90,14 @@ async fn main() -> Result<()> {
     // Load environment variables from a .env file, if it exists.
     dotenvy::dotenv().ok();
 
-    // Initialize the tracing subscriber for structured logging.
-    tracing_subscriber::fmt::init();
+    // --- WebSocket and Tracing Setup ---
+    let (ws_tx, _) = broadcast::channel::<WsMessage>(1024);
+    // Create the cache here
+    let ws_cache = Arc::new(Mutex::new(VecDeque::with_capacity(200)));
+    // Pass both to the layer
+    let ws_layer = WsBroadcastLayer::new(ws_tx.clone(), ws_cache.clone());
+    let fmt_layer = tracing_subscriber::fmt::layer();
+    tracing_subscriber::registry().with(fmt_layer).with(ws_layer).init();
 
     // Parse command-line arguments.
     let cli = Cli::parse();
@@ -110,7 +123,7 @@ async fn main() -> Result<()> {
             start_date,
             end_date,
         } => {
-            handle_backtest(symbol, interval, start_date, end_date).await?;
+            handle_backtest(symbol, interval, start_date, end_date, ws_tx.clone()).await?;
         }
         Commands::Optimize => {
             handle_optimize().await?;
@@ -214,6 +227,7 @@ async fn handle_backtest(
     interval: String,
     start_date: String,
     end_date: String,
+    ws_tx: broadcast::Sender<WsMessage>,
 ) -> Result<()> {
     // --- 1. Initialization & Configuration ---
     let settings = app_config::load_settings()?;
@@ -242,10 +256,13 @@ async fn handle_backtest(
         anyhow::bail!("No strategy is configured in the config file.");
     };
 
-    let mut executor = match settings.simulation {
-        Some(sim_settings) => Box::new(SimulatedExecutor::new(sim_settings, dec!(10_000.0))),
-        None => anyhow::bail!("Cannot run backtest: simulation settings are missing."),
+    // In handle_backtest, replace settings.simulation usage with a placeholder
+    let dummy_settings = execution::types::SimulationSettings {
+        maker_fee: 0.0,
+        taker_fee: 0.0,
+        slippage_percent: 0.0,
     };
+    let mut executor = Box::new(SimulatedExecutor::new(dummy_settings, dec!(10_000.0), ws_tx.clone()));
 
     // --- 3. Load Data ---
     let db = database::connect(&settings.database).await?;

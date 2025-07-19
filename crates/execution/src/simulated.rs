@@ -7,6 +7,8 @@ use async_trait::async_trait;
 use rust_decimal_macros::dec;
 use core_types::{OrderRequest, Execution, Side, Position};
 use num_traits::FromPrimitive;
+use tokio::sync::broadcast;
+use events::WsMessage;
 /// A simulated executor that processes orders against an in-memory portfolio.
 ///
 /// This executor is the core of the backtesting and paper trading engine.
@@ -20,6 +22,7 @@ pub struct SimulatedExecutor {
     /// The portfolio holding the current state (cash, positions).
     /// `Portfolio` is not `Clone`, so the executor must own it.
     portfolio: Portfolio,
+    ws_tx: broadcast::Sender<WsMessage>,
 }
 
 impl SimulatedExecutor {
@@ -29,10 +32,15 @@ impl SimulatedExecutor {
     ///
     /// * `settings`: The simulation settings (fees, slippage).
     /// * `initial_capital`: The starting cash balance for the portfolio.
-    pub fn new(settings: SimulationSettings, initial_capital: Decimal) -> Self {
+    pub fn new(
+        settings: SimulationSettings,
+        initial_capital: Decimal,
+        ws_tx: broadcast::Sender<WsMessage>,
+    ) -> Self {
         Self {
             settings,
             portfolio: Portfolio::new(initial_capital),
+            ws_tx,
         }
     }
 
@@ -81,14 +89,21 @@ impl SimulatedExecutor {
         self.portfolio.open_positions.insert(order.symbol.clone(), new_position);
 
         // --- 4. Return the Execution Result ---
-        Ok((Execution {
+        let execution = Execution {
             symbol: order.symbol.clone(),
             side: order.side,
             price: execution_price,
             quantity: order.quantity,
             fee,
             source_request: order.clone(),
-        }, None))
+        };
+        let _ = self.ws_tx.send(WsMessage::TradeExecuted(execution.clone()));
+        let _ = self.ws_tx.send(WsMessage::PortfolioUpdate(events::WsPortfolioUpdate {
+            cash: Decimal::ZERO,
+            total_value: Decimal::ZERO,
+            open_positions: std::collections::HashMap::new(),
+        }));
+        Ok((execution, None))
     }
 
     /// Processes a closing order.
@@ -124,14 +139,21 @@ impl SimulatedExecutor {
         self.portfolio.cash += net_pnl;
 
         // --- 5. Return the Execution Result ---
-        Ok((Execution {
+        let execution = Execution {
             symbol: order.symbol.clone(),
             side: order.side, // The side of the *closing order*
             price: execution_price,
             quantity: open_position.quantity,
             fee,
             source_request: order.clone(),
-        }, Some(open_position)))
+        };
+        let _ = self.ws_tx.send(WsMessage::TradeExecuted(execution.clone()));
+        let _ = self.ws_tx.send(WsMessage::PortfolioUpdate(events::WsPortfolioUpdate {
+            cash: Decimal::ZERO,
+            total_value: Decimal::ZERO,
+            open_positions: std::collections::HashMap::new(),
+        }));
+        Ok((execution, Some(open_position)))
     }
 }
 

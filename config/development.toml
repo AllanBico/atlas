@@ -1,7 +1,7 @@
 
 [app]
 # Override the log level for development to get more detailed logs.
-log_level = "debug"
+log_level = "info"
 
 [binance]
 api_key = "okgjgXGuaMqco4WrLGkcBYwZnvN3HNuTlMYqzqwkRbGySKUrTopXBPPVFVQS0ZVQ"

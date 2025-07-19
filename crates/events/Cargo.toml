@@ -1,0 +1,11 @@
+[package]
+name = "events"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+core-types = { path = "../core-types" }
+analytics = { path = "../analytics" }
+serde = { version = "1.0", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+rust_decimal = "1.33"

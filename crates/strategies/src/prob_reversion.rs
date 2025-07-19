@@ -5,8 +5,7 @@ use crate::{Signal, Strategy};
 use core_types::{Kline, Side};
 use rust_decimal::prelude::*;
 use ta::indicators::{BollingerBands, RelativeStrengthIndex as Rsi, SimpleMovingAverage as Sma};
-use ta::{Next, Period};
-use yata::indicators::AverageDirectionalIndex;
+use ta::{Next};
 
 /// Minimal ADX calculation (Wilder's smoothing)
 fn calculate_adx(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Vec<f64> {

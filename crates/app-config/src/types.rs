@@ -4,7 +4,7 @@ use serde::Deserialize;
 // Import the settings struct from our strategies crate
 use strategies::types::{MACrossoverSettings, ProbReversionSettings, SuperTrendSettings};
 use risk::types::SimpleRiskSettings;
-use execution::types::SimulationSettings;
+// use execution::types::SimulationSettings; // Removed to break cyclic dependency
 
 #[derive(Deserialize, Debug)]
 pub struct ServerSettings {
@@ -25,8 +25,7 @@ pub struct Settings {
     #[serde(default)]
     pub strategies: StrategySettings,
 
-    // Add this new optional field for the simulation settings
-    pub simulation: Option<SimulationSettings>,
+    // pub simulation: Option<SimulationSettings>, // Removed to break cyclic dependency
 
     pub simple_risk_manager: Option<SimpleRiskSettings>,
 }

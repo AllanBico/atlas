@@ -5,7 +5,7 @@ use crate::{Error, Result, RiskManager}; // Import our own trait and errors
 use core_types::{OrderRequest, Position, Side, Signal, Kline};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec; // For creating decimals from literals
-use num_traits::{FromPrimitive, ToPrimitive};
+use num_traits::{FromPrimitive };
 
 /// A simple risk manager that uses a fixed fractional position sizing model.
 ///

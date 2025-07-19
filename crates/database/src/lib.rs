@@ -392,4 +392,51 @@ impl Db {
         tx.commit().await.map_err(Error::OperationFailed)?;
         Ok(())
     }
+
+    /// Fetches a paginated list of backtest runs from the database.
+    /// Also returns the total count of all runs for pagination controls.
+    pub async fn get_backtest_runs_paginated(
+        &self,
+        page: u32,
+        page_size: u32,
+    ) -> Result<(Vec<BacktestRun>, i64)> {
+        let offset = (page - 1) * page_size;
+
+        // Query to fetch the paginated items
+        let runs = sqlx::query_as!(
+            BacktestRun,
+            r#"
+            SELECT id, strategy_name, symbol, interval, start_date, end_date, created_at
+            FROM backtest_runs
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2
+            "#,
+            page_size as i64,
+            offset as i64
+        )
+        .fetch_all(&self.0)
+        .await
+        .map_err(Error::OperationFailed)?;
+
+        // Query to get the total count of items
+        let total_count = sqlx::query!("SELECT COUNT(*) as count FROM backtest_runs")
+            .fetch_one(&self.0)
+            .await
+            .map_err(Error::OperationFailed)?
+            .count
+            .unwrap_or(0);
+
+        Ok((runs, total_count))
+    }
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct BacktestRun {
+    pub id: i64,
+    pub strategy_name: String,
+    pub symbol: String,
+    pub interval: String,
+    pub start_date: DateTime<Utc>,
+    pub end_date: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
 }

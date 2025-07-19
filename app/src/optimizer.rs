@@ -4,7 +4,6 @@ use serde::Deserialize;
 use strategies::types::{MACrossoverSettings, SuperTrendSettings, ProbReversionSettings};
 use std::fs;
 use anyhow::{Context, Result};
-use itertools::{ iproduct};
 use crate::{ SimpleRiskManager,}; // MACrossover will be imported below
 use app_config::types::AppSettings;
 use backtester::Backtester;
@@ -15,7 +14,6 @@ use rayon::ThreadPoolBuilder;
 use rust_decimal_macros::dec;
 use std::sync::Arc;
 use strategies::ma_crossover::MACrossover;
-use tokio::runtime::Runtime;
 use chrono::Utc;
 use chrono::TimeZone;
 use std::any::Any;
@@ -48,7 +46,7 @@ pub struct JobSettings {
 #[serde(untagged)] // Allows serde to try parsing as one variant, then the next
 enum ParamValue {
     Fixed(u32),
-    Range { start: u32, end: u32, step: Option<u32> },
+    Range { cle: u32, end: u32, step: Option<u32> },
 }
 
 // #[derive(Deserialize, Debug)]

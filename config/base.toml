@@ -11,3 +11,7 @@ optimizer_cores = 0
 # The database URL will be provided by environment-specific files or env vars.
 # We put a dummy value here as a placeholder.
 url = "postgres://postgres:root@localhost/atlas_db"
+
+[server]
+host = "127.0.0.1" # Listen on localhost by default
+port = 8080

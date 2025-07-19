@@ -7,6 +7,12 @@ use risk::types::SimpleRiskSettings;
 use execution::types::SimulationSettings;
 
 #[derive(Deserialize, Debug)]
+pub struct ServerSettings {
+    pub host: String,
+    pub port: u16,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct Settings {
     /// The application's general settings.
     pub app: AppSettings,
@@ -14,7 +20,7 @@ pub struct Settings {
     pub binance: BinanceSettings,
     /// Settings for the database connection.
     pub database: DatabaseSettings,
-    
+    pub server: ServerSettings,
     // Add this new optional field for strategy configurations
     #[serde(default)]
     pub strategies: StrategySettings,

@@ -79,20 +79,56 @@ pub fn generate_generic_parameter_sets(config: &OptimizerConfig) -> anyhow::Resu
         ))?;
 
     let params_table = params_value.as_table().ok_or_else(|| anyhow::anyhow!("'{}' must be a TOML table.", strategy_key))?;
+    
+    tracing::info!("Generating parameter sets for strategy: {}", config.job.strategy_to_optimize);
+    tracing::info!("Available parameters: {:?}", params_table.keys().collect::<Vec<_>>());
+    tracing::info!("All strategy params keys: {:?}", config.strategy_params.keys().collect::<Vec<_>>());
 
     // Helper to expand a ParamValue (int or float) into a Vec of numbers
     fn expand_value(value: &Value) -> Vec<Value> {
         if let Some(table) = value.as_table() {
             if let (Some(start), Some(end)) = (table.get("start"), table.get("end")) {
-                let step = table.get("step").and_then(|v| v.as_float()).unwrap_or(1.0);
-                let start = start.as_float().unwrap();
-                let end = end.as_float().unwrap();
+                let step = table.get("step").and_then(|v| {
+                    if let Some(f) = v.as_float() {
+                        Some(f)
+                    } else if let Some(i) = v.as_integer() {
+                        Some(i as f64)
+                    } else {
+                        None
+                    }
+                }).unwrap_or(1.0);
+                
+                tracing::info!("Parsing range: start={:?}, end={:?}, step={:?}", start, end, step);
+                
+                // Handle both integer and float start/end values
+                let start_val = if let Some(f) = start.as_float() {
+                    f
+                } else if let Some(i) = start.as_integer() {
+                    i as f64
+                } else {
+                    return vec![value.clone()]; // Return original value if not numeric
+                };
+                
+                let end_val = if let Some(f) = end.as_float() {
+                    f
+                } else if let Some(i) = end.as_integer() {
+                    i as f64
+                } else {
+                    return vec![value.clone()]; // Return original value if not numeric
+                };
+                
                 let mut vals = vec![];
-                let mut v = start;
-                while v <= end + 1e-8 {
-                    vals.push(Value::Float(v));
+                let mut v = start_val;
+                while v <= end_val + 1e-8 {
+                    // Preserve the original type (integer vs float)
+                    if start.as_integer().is_some() && end.as_integer().is_some() && step == step.floor() {
+                        vals.push(Value::Integer(v as i64));
+                    } else {
+                        vals.push(Value::Float(v));
+                    }
                     v += step;
                 }
+                tracing::info!("Generated values: {:?}", vals);
                 return vals;
             }
         }
@@ -104,7 +140,10 @@ pub fn generate_generic_parameter_sets(config: &OptimizerConfig) -> anyhow::Resu
     let mut value_lists = vec![];
     for (k, v) in params_table.iter() {
         keys.push(k.clone());
-        value_lists.push(expand_value(v));
+        tracing::info!("Raw parameter {}: {:?}", k, v);
+        let expanded = expand_value(v);
+        tracing::info!("Parameter {}: {} values", k, expanded.len());
+        value_lists.push(expanded);
     }
     let mut final_sets = vec![];
     let mut final_tables = vec![];
@@ -130,6 +169,9 @@ pub fn generate_generic_parameter_sets(config: &OptimizerConfig) -> anyhow::Resu
             break;
         }
     }
+    
+    tracing::info!("Generated {} parameter combinations", final_tables.len());
+    
     // The key part that makes it generic is the `match` statement at the end:
     for final_table in final_tables {
         match config.job.strategy_to_optimize.as_str() {
@@ -205,6 +247,26 @@ fn run_single_backtest_and_save(
         let start_dt = parse_date(&job_settings.start_date, true)?;
         let end_dt = parse_date(&job_settings.end_date, false)?;
         let klines = db.get_klines_by_date_range(&symbol, &interval, start_dt, end_dt).await?;
+        
+        // Check if we have enough data for meaningful backtesting
+        if klines.len() < 100 {
+            tracing::warn!(
+                kline_count = klines.len(),
+                start_date = %start_dt,
+                end_date = %end_dt,
+                "Insufficient data for backtesting. Need at least 100 klines, got {}",
+                klines.len()
+            );
+            return Ok(()); // Skip this parameter set
+        }
+        
+        tracing::info!(
+            kline_count = klines.len(),
+            start_date = %start_dt,
+            end_date = %end_dt,
+            "Loaded klines for backtesting"
+        );
+        
         let mut backtester = Backtester::new(symbol.clone(), interval.clone(), strategy, risk_manager, executor);
         if let Ok((report, trades, equity_curve)) = backtester.run(klines).await {
             // Save the parameters as JSON (downcast to correct type)
@@ -244,16 +306,28 @@ pub fn run_optimization(
     param_sets: Vec<Box<dyn Any + Send + Sync>>,
     job_id: i64,
 ) -> Result<i64> {
-    tracing::info!(cores = app_settings.optimizer_cores, "Configuring Rayon thread pool.");
+    tracing::info!(cores = app_settings.optimizer_cores, total_runs = param_sets.len(), "Configuring Rayon thread pool.");
     ThreadPoolBuilder::new()
         .num_threads(app_settings.optimizer_cores as usize)
         .build_global()
         .context("Failed to build Rayon thread pool")?;
     let shared_settings = Arc::new(app_config::load_settings()?);
     let strategy_name = job_settings.strategy_to_optimize.clone();
+    
+    let total_runs = param_sets.len();
+    let mut completed_runs = 0;
+    let completed_runs_mutex = Arc::new(std::sync::Mutex::new(0));
+    
     param_sets.par_iter().for_each_with(shared_settings, |settings, param| {
         if let Err(e) = run_single_backtest_and_save(job_id, settings, job_settings, &strategy_name, param) {
             tracing::error!(error = %e, "A single backtest run failed.");
+        }
+        
+        // Update progress
+        let mut completed = completed_runs_mutex.lock().unwrap();
+        *completed += 1;
+        if *completed % 10 == 0 || *completed == total_runs {
+            tracing::info!("Progress: {}/{} runs completed ({:.1}%)", *completed, total_runs, (*completed as f64 / total_runs as f64) * 100.0);
         }
     });
     Ok(job_id)

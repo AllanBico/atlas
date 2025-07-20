@@ -11,10 +11,28 @@ use analytics::types::PerformanceReport;
 use analytics::types::Trade; // Add this
 use serde::Serialize;
 use analytics::types::EquityPoint;
+use rust_decimal::Decimal;
+
+// API DTO for trades - avoids circular dependency with web-server
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct ApiTrade {
+    pub symbol: String,
+    pub side: String,
+    pub entry_time: DateTime<Utc>,
+    pub exit_time: DateTime<Utc>,
+    pub entry_price: Decimal,
+    pub exit_price: Decimal,
+    pub quantity: Decimal,
+    pub pnl: Decimal,
+    pub fees: Decimal,
+    pub signal_confidence: f64,
+    pub leverage: i32,
+}
 
 /// A struct to fetch the report along with its parameters
 #[derive(Debug, Serialize)]
 pub struct FullReport {
+    pub run_id: i64,
     pub parameters: JsonValue,
     pub report: PerformanceReport,
 }
@@ -306,11 +324,11 @@ impl Db {
     pub async fn get_reports_for_job(&self, job_id: i64) -> Result<Vec<FullReport>> {
         let records = sqlx::query!(
             r#"
-            SELECT br.parameters, pr.net_pnl_absolute, pr.net_pnl_percentage, pr.max_drawdown_absolute, pr.max_drawdown_percentage, pr.sharpe_ratio, pr.win_rate, pr.profit_factor, pr.total_trades, pr.sortino_ratio, pr.calmar_ratio, pr.avg_trade_duration_secs, pr.expectancy, pr.confidence_performance, pr.larom, pr.funding_pnl, pr.drawdown_duration_secs
+            SELECT br.parameters, pr.*
             FROM performance_reports pr
             JOIN backtest_runs br ON pr.run_id = br.id
             WHERE br.job_id = $1
-            "#,
+            "#, // pr.* includes run_id
             job_id
         )
         .fetch_all(&self.0)
@@ -319,6 +337,7 @@ impl Db {
 
         let full_reports = records.into_iter().map(|r| {
             let report = PerformanceReport {
+                run_id: r.run_id,
                 net_pnl_absolute: r.net_pnl_absolute.to_string().parse().unwrap_or_default(),
                 net_pnl_percentage: r.net_pnl_percentage,
                 max_drawdown_absolute: r.max_drawdown_absolute.to_string().parse().unwrap_or_default(),
@@ -336,9 +355,10 @@ impl Db {
                 funding_pnl: r.funding_pnl.to_string().parse().unwrap_or_default(),
                 drawdown_duration_secs: r.drawdown_duration_secs,
             };
-            FullReport {
-                parameters: r.parameters,
-                report,
+            FullReport { 
+                run_id: r.run_id, 
+                parameters: r.parameters, 
+                report 
             }
         }).collect();
 
@@ -351,6 +371,148 @@ impl Db {
             .await
             .map_err(Error::OperationFailed)?;
         Ok(record.id)
+    }
+
+    /// Fetches a paginated list of optimization jobs from the database.
+    pub async fn get_optimization_jobs_paginated(
+        &self,
+        page: u32,
+        page_size: u32,
+    ) -> Result<(Vec<OptimizationJob>, i64)> {
+        let offset = (page - 1) * page_size;
+
+        let jobs = sqlx::query_as!(
+            OptimizationJob,
+            "SELECT id, name, created_at FROM optimization_jobs ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+            page_size as i64,
+            offset as i64
+        )
+        .fetch_all(&self.0)
+        .await
+        .map_err(Error::OperationFailed)?;
+
+        let total_count = sqlx::query!("SELECT COUNT(*) as count FROM optimization_jobs")
+            .fetch_one(&self.0)
+            .await
+            .map_err(Error::OperationFailed)?
+            .count
+            .unwrap_or(0);
+        
+        Ok((jobs, total_count))
+    }
+
+    /// Fetches the detailed summary for a single optimization job.
+    pub async fn get_optimization_summary(&self, job_id: i64) -> Result<Option<JsonValue>> {
+        let record = sqlx::query!(
+            "SELECT top_n_results FROM optimization_summaries WHERE job_id = $1",
+            job_id
+        )
+        .fetch_optional(&self.0)
+        .await
+        .map_err(Error::OperationFailed)?;
+
+        // `fetch_optional` returns an Option, which is perfect.
+        // If the record exists, we return Some(json), otherwise None.
+        Ok(record.map(|r| r.top_n_results))
+    }
+
+    /// Fetches the full performance report for a single backtest run ID.
+    pub async fn get_performance_report(&self, run_id: i64) -> Result<Option<PerformanceReport>> {
+        let record = sqlx::query!(
+            "SELECT * FROM performance_reports WHERE run_id = $1",
+            run_id
+        )
+        .fetch_optional(&self.0)
+        .await
+        .map_err(Error::OperationFailed)?;
+        
+        // Manual mapping from the flat DB record to our PerformanceReport struct
+        Ok(record.map(|r| PerformanceReport {
+            run_id: r.run_id,
+            net_pnl_absolute: r.net_pnl_absolute.to_string().parse().unwrap_or_default(),
+            net_pnl_percentage: r.net_pnl_percentage,
+            max_drawdown_absolute: r.max_drawdown_absolute.to_string().parse().unwrap_or_default(),
+            max_drawdown_percentage: r.max_drawdown_percentage,
+            sharpe_ratio: r.sharpe_ratio,
+            win_rate: r.win_rate,
+            profit_factor: r.profit_factor,
+            total_trades: r.total_trades as u32,
+            sortino_ratio: r.sortino_ratio,
+            calmar_ratio: r.calmar_ratio,
+            avg_trade_duration_secs: r.avg_trade_duration_secs as f64,
+            expectancy: r.expectancy.to_string().parse().unwrap_or_default(),
+            confidence_performance: serde_json::from_value(r.confidence_performance.unwrap_or_default()).unwrap_or_default(),
+            larom: r.larom,
+            funding_pnl: r.funding_pnl.to_string().parse().unwrap_or_default(),
+            drawdown_duration_secs: r.drawdown_duration_secs,
+        }))
+    }
+
+    /// Fetches the full equity curve for a single backtest run ID.
+    pub async fn get_equity_curve_for_run(&self, run_id: i64) -> Result<Vec<EquityPoint>> {
+        let rows = sqlx::query!(
+            "SELECT timestamp, equity FROM equity_curves WHERE run_id = $1 ORDER BY timestamp ASC",
+            run_id
+        )
+        .fetch_all(&self.0)
+        .await
+        .map_err(Error::OperationFailed)?;
+        
+        let points = rows
+            .into_iter()
+            .map(|row| EquityPoint {
+                timestamp: row.timestamp,
+                value: row.equity.to_string().parse().unwrap_or_default(),
+            })
+            .collect();
+        
+        Ok(points)
+    }
+
+    /// Fetches a paginated list of trades for a single backtest run ID.
+    pub async fn get_trades_for_run_paginated(
+        &self,
+        run_id: i64,
+        page: u32,
+        page_size: u32,
+    ) -> Result<(Vec<ApiTrade>, i64)> {
+        let offset = (page - 1) * page_size;
+
+        let rows = sqlx::query!(
+            r#"SELECT symbol, side, entry_time, exit_time, entry_price, exit_price, quantity, pnl, fees, signal_confidence, leverage FROM trades WHERE run_id = $1 ORDER BY entry_time ASC LIMIT $2 OFFSET $3"#,
+            run_id,
+            page_size as i64,
+            offset as i64
+        )
+        .fetch_all(&self.0)
+        .await
+        .map_err(Error::OperationFailed)?;
+
+        let trades = rows
+            .into_iter()
+            .map(|row| ApiTrade {
+                symbol: row.symbol,
+                side: row.side,
+                entry_time: row.entry_time,
+                exit_time: row.exit_time,
+                entry_price: row.entry_price.to_string().parse().unwrap_or_default(),
+                exit_price: row.exit_price.to_string().parse().unwrap_or_default(),
+                quantity: row.quantity.to_string().parse().unwrap_or_default(),
+                pnl: row.pnl.to_string().parse().unwrap_or_default(),
+                fees: row.fees.to_string().parse().unwrap_or_default(),
+                signal_confidence: row.signal_confidence,
+                leverage: row.leverage,
+            })
+            .collect();
+
+        let total_count = sqlx::query!("SELECT COUNT(*) as count FROM trades WHERE run_id = $1", run_id)
+            .fetch_one(&self.0)
+            .await
+            .map_err(Error::OperationFailed)?
+            .count
+            .unwrap_or(0);
+        
+        Ok((trades, total_count))
     }
 
     pub async fn save_optimization_summary<T: Serialize>(
@@ -399,37 +561,38 @@ impl Db {
         &self,
         page: u32,
         page_size: u32,
+        job_id: Option<i64>, // <-- Add filter parameter
     ) -> Result<(Vec<BacktestRun>, i64)> {
         let offset = (page - 1) * page_size;
+        
+        let mut query_builder = sqlx::QueryBuilder::new(
+            "SELECT br.id, br.strategy_name, br.symbol, br.interval, br.start_date, br.end_date, br.created_at, pr.net_pnl_percentage, pr.total_trades, pr.sharpe_ratio, pr.max_drawdown_percentage FROM backtest_runs br LEFT JOIN performance_reports pr ON br.id = pr.run_id WHERE 1=1 "
+        );
+        let mut count_builder = sqlx::QueryBuilder::new("SELECT COUNT(*) as count FROM backtest_runs WHERE 1=1 ");
 
-        // Query to fetch the paginated items
-        let runs = sqlx::query_as!(
-            BacktestRun,
-            r#"
-            SELECT id, strategy_name, symbol, interval, start_date, end_date, created_at
-            FROM backtest_runs
-            ORDER BY created_at DESC
-            LIMIT $1 OFFSET $2
-            "#,
-            page_size as i64,
-            offset as i64
-        )
-        .fetch_all(&self.0)
-        .await
-        .map_err(Error::OperationFailed)?;
+        if let Some(id) = job_id {
+            query_builder.push(" AND br.job_id = ").push_bind(id);
+            count_builder.push(" AND job_id = ").push_bind(id);
+        } else {
+            // By default, show only single runs, not those part of an optimization
+            query_builder.push(" AND br.job_id IS NULL ");
+            count_builder.push(" AND job_id IS NULL ");
+        }
 
-        // Query to get the total count of items
-        let total_count = sqlx::query!("SELECT COUNT(*) as count FROM backtest_runs")
-            .fetch_one(&self.0)
-            .await
-            .map_err(Error::OperationFailed)?
-            .count
-            .unwrap_or(0);
+        query_builder.push(" ORDER BY br.created_at DESC LIMIT ");
+        query_builder.push_bind(page_size as i64);
+        query_builder.push(" OFFSET ");
+        query_builder.push_bind(offset as i64);
+        
+        // Use the new struct with query_as
+        let runs: Vec<BacktestRun> = query_builder.build_query_as().fetch_all(&self.0).await.map_err(Error::OperationFailed)?;
+        let total_count = count_builder.build_query_scalar::<i64>().fetch_one(&self.0).await.map_err(Error::OperationFailed)?;
 
         Ok((runs, total_count))
     }
 }
 
+// This struct will now hold a mix of metadata and key performance metrics.
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct BacktestRun {
     pub id: i64,
@@ -438,5 +601,17 @@ pub struct BacktestRun {
     pub interval: String,
     pub start_date: DateTime<Utc>,
     pub end_date: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    // Add fields from performance_reports (nullable)
+    pub net_pnl_percentage: Option<f64>,
+    pub total_trades: Option<i32>,
+    pub sharpe_ratio: Option<f64>,
+    pub max_drawdown_percentage: Option<f64>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct OptimizationJob {
+    pub id: i64,
+    pub name: String,
     pub created_at: DateTime<Utc>,
 }

@@ -36,6 +36,7 @@ pub type ConfidenceBucketPerformance = HashMap<String, PerformanceReport>;
 /// A comprehensive report of a strategy's performance over a backtest period.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PerformanceReport {
+    pub run_id: i64, // Add this
     // Tier 1 Metrics
     pub net_pnl_absolute: Decimal,
     pub net_pnl_percentage: f64,

@@ -41,13 +41,13 @@ minimum_confidence_threshold =0
 
 [strategies.prob_reversion]
 bband_period = 20
-bband_stddev = 2.0
+bband_stddev = 1.8
 adx_period = 14
-adx_range_threshold = 25.0 # Only trade if ADX is below this (ranging market)
+adx_range_threshold = 30.0 # Only trade if ADX is below this (ranging market)
 rsi_period = 14
-rsi_smoothing = 3 # SMA of RSI
-rsi_oversold = 25.0 # RSI level to start looking for a buy
-confidence = 0.20 # 90%
+rsi_smoothing = 5 # SMA of RSI
+rsi_oversold = 30.0 # RSI level to start looking for a buy
+confidence = 1.0 # 100%
 
 [simulation]
 # Binance Futures VIP 0 fees: 0.02% maker, 0.04% taker

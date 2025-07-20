@@ -20,6 +20,8 @@ pub struct PaginationParams {
     pub page: u32,
     #[serde(default = "default_page_size")]
     pub page_size: u32,
+    // Add this optional filter
+    pub job_id: Option<i64>,
 }
 
 // Helper functions for serde defaults.
@@ -31,6 +33,8 @@ use chrono::{DateTime, Utc};
 use core_types::{Execution, Position};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
+
+
 
 // --- WebSocket Message Structures ---
 

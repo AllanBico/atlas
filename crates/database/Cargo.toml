@@ -23,3 +23,4 @@ chrono = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 analytics = { path = "../analytics" }
 serde_json = "1.0"
+rust_decimal = "1.37.2"

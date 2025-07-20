@@ -8,8 +8,8 @@
 name = "MA Crossover BTCUSDT H1 - Q1 2023"
 symbol = "BTCUSDT"
 interval = "5m"
-start_date = "2025-01-01T00:00:00"
-end_date = "2025-05-31T23:59:59"
+start_date = "2024-01-01T00:00:00"
+end_date = "2024-05-31T23:59:59"
 
 # Define which strategy to optimize. The key must match a strategy in the code.
 strategy_to_optimize = "prob_reversion"
@@ -37,11 +37,11 @@ ema_confirmation_period = 20
 confidence = 0.30
 
 [prob_reversion_params]
-bband_period = { start = 18, end = 22 }
-bband_stddev = { start = 1.5, end = 2.5, step = 0.1 }
-adx_period = { start = 10, end = 20, step = 2 }
-adx_range_threshold = { start = 20.0, end = 30.0, step = 2.5 }
-rsi_period = { start = 10, end = 20, step = 2 }
-rsi_smoothing = { start = 2, end = 5 }
-rsi_oversold = { start = 20.0, end = 30.0, step = 2.5 }
+bband_period = { start = 18, end = 22, step = 2 }
+bband_stddev = { start = 1.8, end = 2.2, step = 0.4 }
+adx_period = { start = 10, end = 14, step = 4 }
+adx_range_threshold = { start = 20.0, end = 30.0, step = 10 }
+rsi_period = { start = 10, end = 14, step = 4 }
+rsi_smoothing = { start = 3, end = 5, step = 2 }
+rsi_oversold = { start = 20.0, end = 30.0, step = 10 }
 confidence = 1

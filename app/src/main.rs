@@ -96,7 +96,10 @@ async fn main() -> Result<()> {
     let ws_cache = Arc::new(Mutex::new(VecDeque::with_capacity(200)));
     // Pass both to the layer
     let ws_layer = WsBroadcastLayer::new(ws_tx.clone(), ws_cache.clone());
-    let fmt_layer = tracing_subscriber::fmt::layer();
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_filter(tracing_subscriber::filter::Targets::new()
+            .with_target("sqlx::query", tracing::Level::WARN) // Disable sqlx query debug logs
+            .with_default(tracing::Level::INFO));
     tracing_subscriber::registry().with(fmt_layer).with(ws_layer).init();
 
     // Parse command-line arguments.
@@ -303,9 +306,7 @@ async fn handle_backtest(
         tracing::info!(trade_count = trades.len(), "Saving individual trades to the database...");
         db.save_trades(run_id, &trades).await?;
         tracing::info!("Individual trades saved successfully.");
-        tracing::info!(point_count = equity_curve.len(), "Saving equity curve to the database...");
         db.save_equity_curve(run_id, &equity_curve).await?;
-        tracing::info!("Equity curve saved successfully.");
         tracing::info!(run_id, "Backtest run and all associated data saved.");
     } else {
         tracing::warn!("Could not find strategy settings to save with the report.");
@@ -326,6 +327,8 @@ async fn handle_optimize() -> Result<()> {
     if param_sets.is_empty() {
         anyhow::bail!("No valid parameter sets were generated.");
     }
+    
+    tracing::info!("Starting optimization with {} parameter sets", param_sets.len());
 
     // Create the DB connection and job ID in the async context
     let db = database::connect(&app_config::load_settings()?.database).await?;

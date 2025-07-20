@@ -16,6 +16,9 @@ pub enum Error {
     #[error("Failed to bind server to address")]
     ServerBindError(#[from] std::io::Error),
 
+    #[error("Resource not found: {0}")]
+    NotFound(String),
+
     // Add other web-specific errors here in the future
 }
 
@@ -41,6 +44,7 @@ impl IntoResponse for Error {
                     "Failed to bind server to address".to_string(),
                 )
             }
+            Error::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
         };
 
         let body = Json(json!({ "error": error_message }));

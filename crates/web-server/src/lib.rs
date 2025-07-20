@@ -3,7 +3,7 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        State,Query
+        State, Query, Path
     },
     response::IntoResponse,
     routing::get,
@@ -12,11 +12,12 @@ use axum::{
     Extension,
 };
 use futures::{sink::SinkExt, stream::StreamExt}; // for websocket send/receive
-use database::{Db, BacktestRun};
+use database::{Db, BacktestRun, OptimizationJob, ApiTrade};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use types::{PaginatedResponse, PaginationParams, WsMessage};
+use analytics::types::EquityPoint;
 use app_config::types::ServerSettings; // Import the new settings
 use tokio::net::TcpListener;
 
@@ -62,7 +63,14 @@ pub fn create_router(app_state: AppState) -> Router {
 
     // Define the API sub-router
     let api_router = Router::new()
-        .route("/backtest-runs", get(get_backtest_runs_handler));
+        .route("/backtest-runs", get(get_backtest_runs_handler))
+        // Add the new optimization routes
+        .route("/optimizations", get(get_optimizations_handler))
+        .route("/optimizations/{jobId}", get(get_optimization_details_handler))
+        // Add the new backtest detail routes
+        .route("/backtests/{runId}", get(get_backtest_details_handler))
+        .route("/backtests/{runId}/trades", get(get_backtest_trades_handler))
+        .route("/backtests/{runId}/equity-curve", get(get_backtest_equity_curve_handler));
 
     // The main router.
     Router::new()
@@ -87,9 +95,9 @@ async fn get_backtest_runs_handler(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<BacktestRun>>> {
-    // Call our new database function with the parsed pagination parameters.
+    // Pass the optional job_id to the database function
     let (runs, total_items) = state.db
-        .get_backtest_runs_paginated(params.page, params.page_size)
+        .get_backtest_runs_paginated(params.page, params.page_size, params.job_id)
         .await?;
 
     // Construct the paginated response object.
@@ -101,6 +109,83 @@ async fn get_backtest_runs_handler(
     };
     
     Ok(Json(response))
+}
+
+/// Handler for `GET /api/optimizations`
+async fn get_optimizations_handler(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<PaginatedResponse<OptimizationJob>>> {
+    let (jobs, total_items) = state.db
+        .get_optimization_jobs_paginated(params.page, params.page_size)
+        .await?;
+
+    let response = PaginatedResponse {
+        items: jobs,
+        total_items,
+        page: params.page,
+        page_size: params.page_size,
+    };
+    
+    Ok(Json(response))
+}
+
+/// Handler for `GET /api/optimizations/:jobId`
+async fn get_optimization_details_handler(
+    State(state): State<AppState>,
+    Path(job_id): Path<i64>, // Extractor for path parameters like {job_id}
+) -> Result<Json<serde_json::Value>> {
+    tracing::info!(job_id, "Fetching optimization details for job");
+    
+    match state.db.get_optimization_summary(job_id).await? {
+        Some(summary) => {
+            tracing::info!(job_id, "Found optimization summary");
+            Ok(Json(summary))
+        },
+        None => {
+            tracing::warn!(job_id, "Optimization job not found or has no summary");
+            Err(Error::NotFound(format!("Optimization job {} not found or has no summary", job_id)))
+        },
+    }
+}
+
+/// Handler for `GET /api/backtests/:runId`
+async fn get_backtest_details_handler(
+    State(state): State<AppState>,
+    Path(run_id): Path<i64>,
+) -> Result<Json<analytics::types::PerformanceReport>> {
+    match state.db.get_performance_report(run_id).await? {
+        Some(report) => Ok(Json(report)),
+        None => Err(Error::NotFound(format!("Backtest run {} not found", run_id))),
+    }
+}
+
+/// Handler for `GET /api/backtests/:runId/trades`
+async fn get_backtest_trades_handler(
+    State(state): State<AppState>,
+    Path(run_id): Path<i64>,
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<PaginatedResponse<ApiTrade>>> {
+    let (trades, total_items) = state.db
+        .get_trades_for_run_paginated(run_id, params.page, params.page_size)
+        .await?;
+    
+    let response = PaginatedResponse {
+        items: trades,
+        total_items,
+        page: params.page,
+        page_size: params.page_size,
+    };
+    Ok(Json(response))
+}
+
+/// Handler for `GET /api/backtests/:runId/equity-curve`
+async fn get_backtest_equity_curve_handler(
+    State(state): State<AppState>,
+    Path(run_id): Path<i64>,
+) -> Result<Json<Vec<EquityPoint>>> {
+    let curve = state.db.get_equity_curve_for_run(run_id).await?;
+    Ok(Json(curve))
 }
 
 /// The handler for `GET /ws`.

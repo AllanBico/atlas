@@ -1,14 +1,12 @@
 // In crates/api-client/src/live_connector.rs
 
 use crate::Result;
-use crate::types::{WsKline, WsKlineEvent};
+use crate::types::{ WsKlineEvent};
 use async_stream::stream;
 use core_types::{Kline, Symbol};
 use futures::Stream;
 use futures_util::StreamExt;
 use tokio_tungstenite::connect_async;
-
-const BINANCE_WS_BASE_URL: &str = "wss://fstream.binance.com/ws";
 
 /// A connector for receiving live data streams from Binance.
 #[derive(Clone)]
@@ -26,9 +24,10 @@ impl LiveConnector {
         &self,
         symbol: &Symbol,
         interval: &str,
+        base_url: &str,
     ) -> impl Stream<Item = Result<Kline>> {
         let stream_name = format!("{}@kline_{}", symbol.0.to_lowercase(), interval);
-        let url = format!("{}/{}", BINANCE_WS_BASE_URL, stream_name);
+        let url = format!("{}/{}", base_url, stream_name);
 
         stream! {
             loop {

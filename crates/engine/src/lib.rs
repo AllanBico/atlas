@@ -12,6 +12,7 @@ use rust_decimal_macros::dec;
 use rust_decimal::Decimal;
 use tokio::sync::broadcast;
 use events::WsMessage;
+use app_config::types::BinanceSettings;
 
 const KLINE_HISTORY_SIZE: usize = 2; // Same as in backtester
 
@@ -27,6 +28,7 @@ pub struct Engine<'a> {
     // The in-memory "hot" cache of recent klines
     klines: VecDeque<Kline>,
     ws_tx: broadcast::Sender<WsMessage>,
+    binance_settings: BinanceSettings, // <-- Add this
 }
 
 impl<'a> Engine<'a> {
@@ -38,6 +40,7 @@ impl<'a> Engine<'a> {
         risk_manager: Box<dyn RiskManager + Send + 'a>,
         executor: Box<dyn Executor + Send + 'a>,
         ws_tx: broadcast::Sender<WsMessage>,
+        binance_settings: BinanceSettings, // <-- Add this
     ) -> Self {
         Self {
             symbol,
@@ -49,6 +52,7 @@ impl<'a> Engine<'a> {
             live_connector: LiveConnector::new(),
             klines: VecDeque::with_capacity(KLINE_HISTORY_SIZE + 1),
             ws_tx,
+            binance_settings, // <-- Store it
         }
     }
 
@@ -64,7 +68,11 @@ impl<'a> Engine<'a> {
         tracing::info!("Engine warmup complete. History size: {}", self.klines.len());
 
         // --- 2. Live Trading Loop ---
-        let mut kline_stream = Box::pin(self.live_connector.subscribe_to_klines(&self.symbol, &self.interval));
+        let mut kline_stream = Box::pin(self.live_connector.subscribe_to_klines(
+            &self.symbol,
+            &self.interval,
+            &self.binance_settings.ws_base_url, // <-- Pass the configured URL
+        ));
         tracing::info!("Subscribed to live kline stream. Engine is now live.");
 
         while let Some(Ok(kline)) = kline_stream.next().await {
@@ -138,7 +146,8 @@ impl<'a> Engine<'a> {
             let order_request_result = self.risk_manager.evaluate(
                 &signal,
                 portfolio_value,
-                calculation_kline,
+                &self.symbol, // Pass the symbol
+                calculation_kline, // Pass the kline with the price data
                 open_position,
             );
 

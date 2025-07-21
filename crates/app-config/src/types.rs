@@ -40,12 +40,16 @@ pub struct AppSettings {
     pub optimizer_cores: u32,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct BinanceSettings {
     /// The API key for Binance.
     pub api_key: String,
     /// The secret key for Binance.
     pub secret_key: String,
+    /// The REST API base URL for Binance.
+    pub rest_base_url: String,
+    /// The WebSocket base URL for Binance.
+    pub ws_base_url: String,
 }
 
 #[derive(Deserialize, Debug)]

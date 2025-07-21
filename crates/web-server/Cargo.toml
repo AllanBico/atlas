@@ -33,3 +33,4 @@ tracing = "0.1"
 chrono = "0.4.41"
 rust_decimal = "1.37.2"
 futures = "0.3.31"
+events = { version = "0.1.0", path = "../events" }

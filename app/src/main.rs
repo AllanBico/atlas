@@ -30,6 +30,8 @@ use tokio::sync::broadcast;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 mod tracing_layer;
+use engine::Engine; // Import our new Engine
+
 // --- Command-Line Interface Definition ---
 
 #[derive(Parser, Debug)]
@@ -144,22 +146,87 @@ async fn main() -> Result<()> {
 /// This function initializes all core components and starts the web server.
 /// It will run indefinitely until terminated.
 async fn run_app() -> Result<()> {
-    // --- Initialization ---
+    // --- 1. Initialization ---
     let settings = app_config::load_settings()?;
-    tracing::info!("Application settings loaded successfully");
+    tracing::info!("Application settings loaded successfully.");
 
     let db_pool = database::connect(&settings.database).await?;
-    tracing::info!("Database connection established and migrations are up-to-date");
+    tracing::info!("Database connection established and migrations are up-to-date.");
 
-    // We can initialize other components here that might be needed by the server state
-    // let api_client = api_client::new(&settings.binance)?;
-    // etc.
+    // The WebSocket broadcaster is a central piece of state.
+    let (ws_tx, _) = broadcast::channel::<events::WsMessage>(1024);
 
-    // --- Start the Web Server ---
-    // This function will block and run the server until the program is stopped.
-    web_server::run(settings.server, db_pool).await?;
+    // --- 2. Component Instantiation ---
+    // Use a hardcoded SimulationSettings for now, as in backtest
+    let dummy_settings = execution::types::SimulationSettings {
+        maker_fee: 0.0,
+        taker_fee: 0.0,
+        slippage_percent: 0.0,
+    };
+    let executor = Box::new(SimulatedExecutor::new(
+        dummy_settings,
+        dec!(10_000.0), // Initial paper trading capital
+        ws_tx.clone(),
+    )) as Box<dyn Executor + Send>;
 
-    Ok(())
+    // Instantiate Risk Manager
+    let risk_manager = match settings.simple_risk_manager {
+        Some(risk_settings) => Box::new(SimpleRiskManager::new(risk_settings)) as Box<dyn RiskManager + Send>,
+        None => anyhow::bail!("Cannot run: simple_risk_manager settings are missing."),
+    };
+
+    // Instantiate Strategy (explicit, as in backtest)
+    let strategy: Box<dyn Strategy + Send> = if let Some(settings) = settings.strategies.ma_crossover.as_ref() {
+        Box::new(strategies::ma_crossover::MACrossover::new(settings.clone()))
+    } else if let Some(settings) = settings.strategies.supertrend.as_ref() {
+        Box::new(strategies::supertrend::SuperTrend::new(settings.clone()))
+    } else if let Some(settings) = settings.strategies.prob_reversion.as_ref() {
+        Box::new(strategies::prob_reversion::ProbReversion::new(settings.clone()))
+    } else {
+        anyhow::bail!("Cannot run: No strategies are configured in settings.");
+    };
+
+    // --- 3. Create the Trading Engine ---
+    // We will get the symbol and interval from the config in the future.
+    // For now, we'll use a placeholder.
+    let symbol = Symbol("BTCUSDT".to_string());
+    let interval = "1m".to_string(); // Use a fast interval for live testing
+
+    let mut trading_engine = Engine::new(
+        symbol,
+        interval,
+        db_pool.clone(), // Clone the DB pool for the engine
+        strategy,
+        risk_manager,
+        executor,
+        ws_tx.clone(), // The engine also gets a sender for its own direct messages
+    );
+    
+    // --- 4. Launch Concurrent Tasks ---
+    tracing::info!("Launching concurrent Trading Engine and Web Server tasks...");
+
+    // Spawn the trading engine to run in its own concurrent task.
+    let engine_handle = tokio::spawn(async move {
+        trading_engine.run().await
+    });
+    
+    // Run the web server in the current task.
+    let server_handle = tokio::spawn(async move {
+        web_server::run(settings.server, db_pool, ws_tx).await
+    });
+
+    // Use `tokio::select!` to wait for the first task to complete.
+    // In a healthy state, neither should complete. If one does, it's likely an error.
+    tokio::select! {
+        engine_result = engine_handle => {
+            tracing::error!(?engine_result, "Trading engine task has terminated unexpectedly.");
+        }
+        server_result = server_handle => {
+            tracing::error!(?server_result, "Web server task has terminated unexpectedly.");
+        }
+    }
+
+    anyhow::bail!("A critical task terminated. Shutting down.");
 }
 
 // --- "Backfill" Subcommand Logic ---
@@ -244,12 +311,12 @@ async fn handle_backtest(
 
     // --- 2. Instantiate All Components ---
     let risk_manager = match settings.simple_risk_manager {
-        Some(risk_settings) => Box::new(SimpleRiskManager::new(risk_settings)),
+        Some(risk_settings) => Box::new(SimpleRiskManager::new(risk_settings)) as Box<dyn RiskManager + Send>,
         None => anyhow::bail!("Cannot run backtest: simple_risk_manager settings are missing."),
     };
 
     // Pick the first available strategy from config
-    let (strategy_name, strategy): (String, Box<dyn Strategy>) = if let Some(settings) = settings.strategies.ma_crossover.as_ref() {
+    let (strategy_name, strategy): (String, Box<dyn Strategy + Send>) = if let Some(settings) = settings.strategies.ma_crossover.as_ref() {
         ("ma_crossover".to_string(), Box::new(MACrossover::new(settings.clone())))
     } else if let Some(settings) = settings.strategies.supertrend.as_ref() {
         ("supertrend".to_string(), Box::new(strategies::supertrend::SuperTrend::new(settings.clone())))
@@ -265,7 +332,7 @@ async fn handle_backtest(
         taker_fee: 0.0,
         slippage_percent: 0.0,
     };
-    let mut executor = Box::new(SimulatedExecutor::new(dummy_settings, dec!(10_000.0), ws_tx.clone()));
+    let mut executor = Box::new(SimulatedExecutor::new(dummy_settings, dec!(10_000.0), ws_tx.clone())) as Box<dyn Executor + Send>;
 
     // --- 3. Load Data ---
     let db = database::connect(&settings.database).await?;

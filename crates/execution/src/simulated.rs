@@ -49,6 +49,20 @@ impl SimulatedExecutor {
         &mut self.portfolio
     }
 
+    fn create_portfolio_update(&self) -> events::WsPortfolioUpdate {
+        let open_positions_str_keys = self.portfolio.open_positions
+            .iter()
+            .map(|(k, v)| (k.0.clone(), v.clone()))
+            .collect();
+        // TODO: Calculate total value (cash + position values)
+        let total_value = self.portfolio.cash;
+        events::WsPortfolioUpdate {
+            cash: self.portfolio.cash,
+            total_value,
+            open_positions: open_positions_str_keys,
+        }
+    }
+
     /// Processes an entry order (opening a new long or short position).
     fn process_entry(&mut self, order: &OrderRequest, current_price: Decimal, current_time: i64) -> Result<(Execution, Option<Position>)> {
         // --- 1. Calculate Execution Price with Slippage ---
@@ -97,12 +111,10 @@ impl SimulatedExecutor {
             fee,
             source_request: order.clone(),
         };
-        let _ = self.ws_tx.send(WsMessage::TradeExecuted(execution.clone()));
-        let _ = self.ws_tx.send(WsMessage::PortfolioUpdate(events::WsPortfolioUpdate {
-            cash: Decimal::ZERO,
-            total_value: Decimal::ZERO,
-            open_positions: std::collections::HashMap::new(),
-        }));
+        let _ = self.ws_tx.send(events::WsMessage::TradeExecuted(execution.clone()));
+        // Construct the full portfolio update
+        let portfolio_update = self.create_portfolio_update();
+        let _ = self.ws_tx.send(events::WsMessage::PortfolioUpdate(portfolio_update));
         Ok((execution, None))
     }
 

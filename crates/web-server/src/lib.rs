@@ -16,10 +16,11 @@ use database::{Db, BacktestRun, OptimizationJob, ApiTrade};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
-use types::{PaginatedResponse, PaginationParams, WsMessage};
+use types::{PaginatedResponse, PaginationParams};
 use analytics::types::EquityPoint;
 use app_config::types::ServerSettings; // Import the new settings
 use tokio::net::TcpListener;
+use events::WsMessage;
 
 pub mod error;
 pub mod types;
@@ -255,15 +256,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
 ///
 /// This function sets up the TCP listener and serves the application router.
 /// It will run forever until the process is terminated.
-pub async fn run(settings: ServerSettings, db_pool: Db) -> Result<()> {
-    // 1. Create the broadcast channel.
-    //    The channel capacity should be large enough to handle bursts.
-    let (ws_tx, _) = broadcast::channel(1024);
-
-    // 2. Create the WebSocket replay cache.
-    let ws_cache = Arc::new(Mutex::new(VecDeque::with_capacity(WS_CACHE_SIZE)));
+pub async fn run(
+    settings: ServerSettings,
+    db_pool: Db,
+    ws_tx: broadcast::Sender<events::WsMessage>, // <-- Add this
+) -> Result<()> {
+    // The ws_cache should also be created here and passed into the AppState
+    let ws_cache = Arc::new(Mutex::new(VecDeque::with_capacity(200)));
     
-    // 3. Create the AppState.
     let app_state = AppState {
         db: db_pool,
         ws_tx,

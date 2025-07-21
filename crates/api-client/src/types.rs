@@ -66,3 +66,42 @@ pub struct RawKline(
     pub String,      // 10: Taker buy quote asset volume
     pub String,      // 11: Ignore
 );
+
+/// Represents a single kline event from a WebSocket stream.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WsKlineEvent {
+    #[serde(rename = "e")]
+    pub event_type: String, // "kline"
+    #[serde(rename = "E")]
+    pub event_time: i64,
+    #[serde(rename = "s")]
+    pub symbol: String,
+    #[serde(rename = "k")]
+    pub kline: WsKline,
+}
+
+/// Represents the kline data within a WebSocket event.
+#[derive(Debug, Deserialize, Clone)]
+pub struct WsKline {
+    #[serde(rename = "t")]
+    pub open_time: i64,
+    #[serde(rename = "T")]
+    pub close_time: i64,
+    #[serde(rename = "s")]
+    pub symbol: String,
+    #[serde(rename = "i")]
+    pub interval: String,
+    #[serde(rename = "o")]
+    pub open: Decimal,
+    #[serde(rename = "c")]
+    pub close: Decimal,
+    #[serde(rename = "h")]
+    pub high: Decimal,
+    #[serde(rename = "l")]
+    pub low: Decimal,
+    #[serde(rename = "v")]
+    pub volume: Decimal,
+    #[serde(rename = "x")]
+    pub is_closed: bool, // Is this kline final?
+}

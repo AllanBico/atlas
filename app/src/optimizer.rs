@@ -218,7 +218,7 @@ fn run_single_backtest_and_save(
         let executor = Box::new(SimulatedExecutor::new(dummy_settings, dec!(10_000.0), dummy_ws_tx));
 
         // Instantiate the correct strategy based on strategy_name and param type
-        let strategy: Box<dyn strategies::Strategy> = match strategy_name {
+        let strategy: Box<dyn strategies::Strategy + Send> = match strategy_name {
             "ma_crossover" => {
                 let settings = param.downcast_ref::<MACrossoverSettings>().ok_or_else(|| anyhow::anyhow!("Failed to downcast to MACrossoverSettings"))?;
                 Box::new(MACrossover::new(settings.clone()))

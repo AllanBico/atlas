@@ -19,11 +19,11 @@ pub struct Backtester {
     /// The timeframe interval for the test.
     pub interval: String,
     /// A single strategy instance to test.
-    pub strategy: Box<dyn Strategy>, // No more lifetime
+    pub strategy: Box<dyn Strategy + Send>, // No more lifetime
     /// The risk manager instance.
-    pub risk_manager: Box<dyn RiskManager>,
+    pub risk_manager: Box<dyn RiskManager + Send>,
     /// The execution simulator.
-    pub executor: Box<dyn Executor>,
+    pub executor: Box<dyn Executor + Send>,
     logger: TradeLogger,
 }
 
@@ -33,9 +33,9 @@ impl Backtester {
     pub fn new(
         symbol: core_types::Symbol,
         interval: String,
-        strategy: Box<dyn Strategy>, // No more lifetime
-        risk_manager: Box<dyn RiskManager>,
-        executor: Box<dyn Executor>,
+        strategy: Box<dyn Strategy + Send>, // No more lifetime
+        risk_manager: Box<dyn RiskManager + Send>,
+        executor: Box<dyn Executor + Send>,
     ) -> Self {
         Self {
             symbol,

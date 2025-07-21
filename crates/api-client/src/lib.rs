@@ -12,10 +12,12 @@ type HmacSha256 = Hmac<Sha256>;
 
 pub mod error;
 pub mod types;
+pub mod live_connector;
 
 // Re-export public types
 pub use error::{Error, Result};
 pub use types::*;
+pub use live_connector::LiveConnector;
 
 // We will add endpoint functions here later.
 

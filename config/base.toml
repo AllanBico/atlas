@@ -4,7 +4,7 @@
 
 [app]
 environment = "development"
-log_level = "info"
+log_level = "debug"
 # Default to using all available cores.
 optimizer_cores = 0
 [database]

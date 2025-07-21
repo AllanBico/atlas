@@ -53,13 +53,3 @@ pub struct WsPortfolioUpdate {
     pub total_value: Decimal, // cash + value of open positions
     pub open_positions: HashMap<String, Position>, // Keyed by symbol string for easy JS access
 }
-
-/// The top-level WebSocket message enum.
-/// `tag` and `content` are used by serde for clean JSON representation.
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", content = "payload")]
-pub enum WsMessage {
-    Log(WsLogMessage),
-    PortfolioUpdate(WsPortfolioUpdate),
-    TradeExecuted(Execution), // We can reuse our core `Execution` type
-}

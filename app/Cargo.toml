@@ -10,6 +10,7 @@ api-client = { path = "../crates/api-client" }
 database = { path = "../crates/database" }
 web-server = { path = "../crates/web-server" }
 risk = { path = "../crates/risk" }
+engine = { path = "../crates/engine" }
 strategies = { path = "../crates/strategies" }
 execution = { path = "../crates/execution" }
 rust_decimal_macros = "1.34"

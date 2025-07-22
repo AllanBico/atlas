@@ -7,6 +7,9 @@ pub enum Error {
     #[error("Execution failed: {reason}")]
     ExecutionFailed { reason: String },
     
+    #[error("API client error: {0}")]
+    ApiClientError(#[from] api_client::Error),
+    
     // We can add more specific variants later, e.g., for different exchange rejection reasons.
 }
 

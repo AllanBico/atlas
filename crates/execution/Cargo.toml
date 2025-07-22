@@ -14,3 +14,5 @@ num-traits = "0.2"
 tokio = { version = "1", features = ["sync"] }
 web-server = { path = "../web-server" }
 events = { path = "../events" }
+api-client = { path = "../api-client" }
+tracing = "0.1"

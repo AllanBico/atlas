@@ -880,6 +880,7 @@ dependencies = [
 name = "execution"
 version = "0.1.0"
 dependencies = [
+ "api-client",
  "async-trait",
  "core-types",
  "events",
@@ -889,6 +890,7 @@ dependencies = [
  "serde",
  "thiserror",
  "tokio",
+ "tracing",
  "web-server",
 ]
 

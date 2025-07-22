@@ -1,7 +1,8 @@
-// In crates/execution/src/lib.rs (REPLACE ENTIRE FILE)
+// In crates/execution/src/lib.rs
 
 use async_trait::async_trait;
 use core_types::{Execution, OrderRequest};
+pub mod live;
 pub mod simulated;
 pub mod error;
 pub mod types;
@@ -9,6 +10,8 @@ pub mod types;
 // Re-export public types
 pub use error::{Error, Result};
 pub use types::SimulationSettings;
+pub use live::LiveExecutor;
+pub use simulated::SimulatedExecutor;
 
 /// The universal interface for an execution handler.
 ///

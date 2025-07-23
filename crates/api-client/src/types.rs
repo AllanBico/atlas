@@ -94,45 +94,14 @@ pub struct WsKline {
     pub interval: String,
     #[serde(rename = "o")]
     pub open: Decimal,
-    #[serde(rename = "l")]
-    pub low: Decimal,
     #[serde(rename = "c")]
     pub close: Decimal,
     #[serde(rename = "h")]
     pub high: Decimal,
+    #[serde(rename = "l")]
+    pub low: Decimal,
     #[serde(rename = "v")]
     pub volume: Decimal,
     #[serde(rename = "x")]
     pub is_closed: bool, // Is this kline final?
-}
-
-/// The response from a successful `set_leverage` call.
-#[derive(Debug, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct LeverageInfo {
-    pub symbol: String,
-    pub leverage: u8,
-    pub max_notional_value: String,
-}
-
-/// The response from a successful `place_order` call.
-#[derive(Debug, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct OrderResponse {
-    pub order_id: i64,
-    pub symbol: String,
-    pub side: String, // "BUY" or "SELL"
-    #[serde(rename = "type")]
-    pub order_type: String, // "MARKET", "LIMIT", etc.
-    pub cum_quote: Decimal, // The cumulative quote asset transacted quantity
-    pub executed_qty: Decimal,
-    pub avg_price: Decimal,
-    pub status: String, // "FILLED", "NEW", etc.
-}
-
-/// The response from a successful `cancel_all_orders` call.
-#[derive(Debug, Deserialize, Clone)]
-pub struct CancelAllResponse {
-    pub code: String, // "200"
-    pub msg: String,  // "The operation of cancel all open order is done."
 }

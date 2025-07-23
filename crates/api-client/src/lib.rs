@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use hmac::{Hmac, Mac};
-use rust_decimal::Decimal;
 use sha2::Sha256;
+use crate::types::FuturesAccountInfo;
 use serde_json::Value;
 use app_config::types::BinanceSettings;
 use core_types::{Kline, Symbol};
@@ -82,7 +82,7 @@ impl ApiClient {
     /// Fetches the futures account balance and asset information.
     ///
     /// This corresponds to the `GET /fapi/v2/account` endpoint.
-    pub async fn get_account_balance(&self) -> Result<types::FuturesAccountInfo> {
+    pub async fn get_account_balance(&self) -> Result<FuturesAccountInfo> {
         let mut params = String::new();
         self.create_signed_query(&mut params);
 
@@ -108,7 +108,7 @@ impl ApiClient {
         }
         
         // If no error code, deserialize into our target struct.
-        let account_info: types::FuturesAccountInfo = serde_json::from_value(value).map_err(Error::DeserializationFailed)?;
+        let account_info: FuturesAccountInfo = serde_json::from_value(value).map_err(Error::DeserializationFailed)?;
 
         Ok(account_info)
     }
@@ -179,110 +179,6 @@ impl ApiClient {
             .collect();
 
         Ok(klines)
-    }
-
-    /// Sets the leverage for a given symbol.
-    /// Corresponds to `POST /fapi/v1/leverage`.
-    pub async fn set_leverage(&self, symbol: &Symbol, leverage: u8) -> Result<types::LeverageInfo> {
-        let mut params = format!("symbol={}&leverage={}", symbol.0, leverage);
-        self.create_signed_query(&mut params);
-
-        let url = format!("{}/fapi/v1/leverage", self.base_url);
-
-        let response = self.http_client
-            .post(&url)
-            .header("X-MBX-APIKEY", &self.api_key)
-            .body(params)
-            .send()
-            .await
-            .map_err(Error::RequestFailed)?;
-        
-        // This is a common pattern for handling Binance responses
-        let text = response.text().await.map_err(Error::RequestFailed)?;
-        if let Ok(error_response) = serde_json::from_str::<Value>(&text) {
-            if let Some(code) = error_response.get("code") {
-                // Leverage change can return a success object OR an error object.
-                // A successful change doesn't have a "code" field.
-                let msg = error_response.get("msg").unwrap().as_str().unwrap().to_string();
-                return Err(Error::ApiError { code: code.as_i64().unwrap(), msg });
-            }
-        }
-        
-        let info: types::LeverageInfo = serde_json::from_str(&text).map_err(Error::DeserializationFailed)?;
-        Ok(info)
-    }
-
-    /// Places a new order.
-    /// Corresponds to `POST /fapi/v1/order`.
-    pub async fn place_order(
-        &self,
-        symbol: &Symbol,
-        side: &str, // "BUY" or "SELL"
-        order_type: &str, // "MARKET", "LIMIT", "STOP_MARKET"
-        quantity: Option<Decimal>,
-        price: Option<Decimal>,
-        stop_price: Option<Decimal>,
-    ) -> Result<types::OrderResponse> {
-        let mut params = format!(
-            "symbol={}&side={}&type={}",
-            symbol.0, side, order_type
-        );
-        if let Some(q) = quantity { params.push_str(&format!("&quantity={}", q)); }
-        if let Some(p) = price { params.push_str(&format!("&price={}&timeInForce=GTC", p)); }
-        if let Some(sp) = stop_price { params.push_str(&format!("&stopPrice={}&reduceOnly=true", sp)); }
-
-        self.create_signed_query(&mut params);
-
-        let url = format!("{}/fapi/v1/order", self.base_url);
-
-        let response = self.http_client
-            .post(&url)
-            .header("X-MBX-APIKEY", &self.api_key)
-            .body(params)
-            .send()
-            .await
-            .map_err(Error::RequestFailed)?;
-            
-        // Same error handling pattern as set_leverage
-        let text = response.text().await.map_err(Error::RequestFailed)?;
-        if let Ok(error_response) = serde_json::from_str::<Value>(&text) {
-            if let Some(code) = error_response.get("code") {
-                let msg = error_response.get("msg").unwrap().as_str().unwrap().to_string();
-                return Err(Error::ApiError { code: code.as_i64().unwrap(), msg });
-            }
-        }
-        
-        let order_res: types::OrderResponse = serde_json::from_str(&text).map_err(Error::DeserializationFailed)?;
-        Ok(order_res)
-    }
-
-    /// Cancels all open orders for a symbol.
-    /// Corresponds to `DELETE /fapi/v1/allOpenOrders`.
-    pub async fn cancel_all_orders(&self, symbol: &Symbol) -> Result<types::CancelAllResponse> {
-        let mut params = format!("symbol={}", symbol.0);
-        self.create_signed_query(&mut params);
-
-        let url = format!("{}/fapi/v1/allOpenOrders", self.base_url);
-        
-        let response = self.http_client
-            .delete(&url) // Uses HTTP DELETE method
-            .header("X-MBX-APIKEY", &self.api_key)
-            .body(params)
-            .send()
-            .await
-            .map_err(Error::RequestFailed)?;
-
-        // Same error handling pattern
-        let text = response.text().await.map_err(Error::RequestFailed)?;
-        if let Ok(error_response) = serde_json::from_str::<Value>(&text) {
-            if let Some(code) = error_response.get("code").and_then(|c| c.as_i64()) {
-                 let msg = error_response.get("msg").unwrap().as_str().unwrap().to_string();
-                 return Err(Error::ApiError { code, msg });
-            }
-        }
-        
-        let cancel_res: types::CancelAllResponse = serde_json::from_str(&text).map_err(Error::DeserializationFailed)?;
-        Ok(cancel_res)
     }
 }
 

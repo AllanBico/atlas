@@ -1,7 +1,7 @@
 // In app/src/main.rs (REPLACE ENTIRE FILE)
 
 use anyhow::Result;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use chrono::{TimeZone, Utc};
 use core_types::Symbol;
 use core_types::Kline;
@@ -11,10 +11,8 @@ use strategies::ma_crossover::MACrossover;
 use strategies::Strategy;
 use std::time::Duration;
 mod optimizer;
-mod strategy_factory;
 use tokio::time::sleep;
 use execution::simulated::SimulatedExecutor;
-use execution::live::LiveExecutor;
 use execution::Executor;
 use rust_decimal_macros::dec; // For our test portfolio
 use core_types::Signal;
@@ -36,12 +34,6 @@ use engine::Engine; // Import our new Engine
 
 // --- Command-Line Interface Definition ---
 
-#[derive(ValueEnum, Clone, Debug)]
-enum RunMode {
-    Paper,
-    Live,
-}
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = "A Binance Futures trading bot.")]
 struct Cli {
@@ -51,12 +43,8 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Runs the main trading bot logic in a specific mode.
-    Run {
-        /// The trading mode to run the bot in.
-        #[arg(long, value_enum, default_value_t = RunMode::Paper)]
-        mode: RunMode,
-    },
+    /// Runs the main trading bot logic in live or paper mode.
+    Run,
 
     /// Backfills historical kline data from Binance.
     Backfill {
@@ -123,8 +111,8 @@ async fn main() -> Result<()> {
 
     // Match on the parsed command and call the appropriate handler.
     match cli.command {
-        Commands::Run { mode } => {
-            run_app(mode).await?;
+        Commands::Run => {
+            run_app().await?;
         }
         Commands::Backfill {
             symbol,
@@ -157,58 +145,48 @@ async fn main() -> Result<()> {
 /// The primary logic for the `run` command.
 /// This function initializes all core components and starts the web server.
 /// It will run indefinitely until terminated.
-async fn run_app(mode: RunMode) -> Result<()> {
-    // --- 1. Initialization --- 
-    let settings = app_config::load_settings()?; 
-    tracing::info!(?mode, "Application settings loaded, starting in specified mode."); 
+async fn run_app() -> Result<()> {
+    // --- 1. Initialization ---
+    let settings = app_config::load_settings()?;
+    tracing::info!("Application settings loaded successfully.");
 
-    let db_pool = database::connect(&settings.database).await?; 
-    tracing::info!("Database connection established and migrations are up-to-date."); 
+    let db_pool = database::connect(&settings.database).await?;
+    tracing::info!("Database connection established and migrations are up-to-date.");
 
-    let (ws_tx, _) = broadcast::channel::<events::WsMessage>(1024); 
-    
-    // The API Client is needed for both modes now 
-    let api_client = api_client::new(&settings.binance)?; 
+    // The WebSocket broadcaster is a central piece of state.
+    let (ws_tx, _) = broadcast::channel::<events::WsMessage>(1024);
 
-    // --- 2. Executor Instantiation (Mode Selection) --- 
-    let executor: Box<dyn Executor + Send> = match mode { 
-        RunMode::Paper => { 
-            tracing::info!("Initializing in Paper Trading mode."); 
-            // Create simulation settings directly since it's not in app_config
-            let simulation_settings = execution::types::SimulationSettings {
-                maker_fee: 0.0002, // 0.02%
-                taker_fee: 0.0004, // 0.04%
-                slippage_percent: 0.0005, // 0.05%
-            };
-            Box::new(SimulatedExecutor::new( 
-                simulation_settings, 
-                dec!(10_000.0), // Initial paper trading capital 
-                ws_tx.clone(), 
-            )) 
-        } 
-        RunMode::Live => { 
-            tracing::warn!("INITIALIZING IN LIVE TRADING MODE. REAL ORDERS WILL BE PLACED."); 
-            Box::new(LiveExecutor::new( 
-                api_client.clone(), // LiveExecutor needs the ApiClient 
-                ws_tx.clone(), 
-                dec!(10_000.0), // Initial capital (will be updated from exchange)
-            )) 
-        } 
-    }; 
-    tracing::info!(name = %executor.name(), "Initialized executor."); 
+    // --- 2. Component Instantiation ---
+    // Use a hardcoded SimulationSettings for now, as in backtest
+    let dummy_settings = execution::types::SimulationSettings {
+        maker_fee: 0.0,
+        taker_fee: 0.0,
+        slippage_percent: 0.0,
+    };
+    let executor = Box::new(SimulatedExecutor::new(
+        dummy_settings,
+        dec!(10_000.0), // Initial paper trading capital
+        ws_tx.clone(),
+    )) as Box<dyn Executor + Send>;
 
-    // --- 3. Component Instantiation --- 
-    let risk_manager = Box::new(SimpleRiskManager::new( 
-        settings.simple_risk_manager.clone().expect("Risk manager settings are required"), 
-    )) as Box<dyn RiskManager + Send>; 
-    
-    let mut strategies = strategy_factory::create_strategies_from_settings(&settings.strategies); 
-    if strategies.is_empty() { 
-        anyhow::bail!("Cannot run: No strategies are configured in settings."); 
-    } 
-    let strategy = strategies.remove(0);
+    // Instantiate Risk Manager
+    let risk_manager = match settings.simple_risk_manager {
+        Some(risk_settings) => Box::new(SimpleRiskManager::new(risk_settings)) as Box<dyn RiskManager + Send>,
+        None => anyhow::bail!("Cannot run: simple_risk_manager settings are missing."),
+    };
 
-    // --- 4. Create the Trading Engine ---
+    // Instantiate Strategy (explicit, as in backtest)
+    let strategy: Box<dyn Strategy + Send> = if let Some(settings) = settings.strategies.ma_crossover.as_ref() {
+        Box::new(strategies::ma_crossover::MACrossover::new(settings.clone()))
+    } else if let Some(settings) = settings.strategies.supertrend.as_ref() {
+        Box::new(strategies::supertrend::SuperTrend::new(settings.clone()))
+    } else if let Some(settings) = settings.strategies.prob_reversion.as_ref() {
+        Box::new(strategies::prob_reversion::ProbReversion::new(settings.clone()))
+    } else {
+        anyhow::bail!("Cannot run: No strategies are configured in settings.");
+    };
+
+    // --- 3. Create the Trading Engine ---
     // We will get the symbol and interval from the config in the future.
     // For now, we'll use a placeholder.
     let symbol = Symbol("BTCUSDT".to_string());
@@ -225,7 +203,7 @@ async fn run_app(mode: RunMode) -> Result<()> {
         settings.binance.clone(), // Pass BinanceSettings
     );
     
-    // --- 5. Launch Concurrent Tasks ---
+    // --- 4. Launch Concurrent Tasks ---
     tracing::info!("Launching concurrent Trading Engine and Web Server tasks...");
 
     // Spawn the trading engine to run in its own concurrent task.

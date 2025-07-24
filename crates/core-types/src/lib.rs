@@ -2,11 +2,9 @@
 
 pub mod error;
 pub mod types;
-pub mod strategy;
 
 // Re-export the most important types for easy access from other crates.
 pub use error::{Error, Result};
 pub use types::{
     Execution, Kline, OrderRequest, Position, Side, Signal, Symbol,
 };
-pub use strategy::StrategyConfig;

@@ -1,124 +1,183 @@
 // In crates/engine/src/lib.rs
 
-pub mod task;
-pub mod strategy_factory;
-
-use crate::task::TradingTask;
-use anyhow::Result;
-use app_config::{LiveRunConfig, Settings};
+use api_client::live_connector::LiveConnector;
+use core_types::{Kline, Symbol, OrderRequest, Signal, Side};
 use database::Db;
-use events::WsMessage;
-use execution::{simulated::SimulatedExecutor, SimulationSettings};
-use risk::simple_manager::SimpleRiskManager;
-use crate::strategy_factory::create_strategies_for_live_run;
-use tokio::sync::broadcast;
-use futures::future;
-use core_types::Symbol;
+use execution::Executor;
+use futures::StreamExt;
+use risk::RiskManager;
+use strategies::Strategy;
+use std::collections::VecDeque;
 use rust_decimal_macros::dec;
+use rust_decimal::Decimal;
+use tokio::sync::broadcast;
+use events::WsMessage;
+use app_config::types::BinanceSettings;
 
-pub const KLINE_HISTORY_SIZE: usize = 200;
+const KLINE_HISTORY_SIZE: usize = 2; // Same as in backtester
 
-/// The portfolio-level orchestrator for all trading activities.
-pub struct Engine {
-    live_config: LiveRunConfig,
-    app_config: Settings,
+/// The core trading engine that orchestrates live data and decision making.
+pub struct Engine<'a> {
+    symbol: Symbol,
+    interval: String,
     db: Db,
+    strategy: Box<dyn Strategy + Send + 'a>,
+    risk_manager: Box<dyn RiskManager + Send + 'a>,
+    executor: Box<dyn Executor + Send + 'a>,
+    live_connector: LiveConnector,
+    // The in-memory "hot" cache of recent klines
+    klines: VecDeque<Kline>,
     ws_tx: broadcast::Sender<WsMessage>,
+    binance_settings: BinanceSettings, // <-- Add this
 }
 
-impl Engine {
+impl<'a> Engine<'a> {
     pub fn new(
-        live_config: LiveRunConfig,
-        app_config: Settings,
+        symbol: Symbol,
+        interval: String,
         db: Db,
+        strategy: Box<dyn Strategy + Send + 'a>,
+        risk_manager: Box<dyn RiskManager + Send + 'a>,
+        executor: Box<dyn Executor + Send + 'a>,
         ws_tx: broadcast::Sender<WsMessage>,
+        binance_settings: BinanceSettings, // <-- Add this
     ) -> Self {
         Self {
-            live_config,
-            app_config,
+            symbol,
+            interval,
             db,
+            strategy,
+            risk_manager,
+            executor,
+            live_connector: LiveConnector::new(),
+            klines: VecDeque::with_capacity(KLINE_HISTORY_SIZE + 1),
             ws_tx,
+            binance_settings, // <-- Store it
         }
     }
 
-    /// The main run method for the orchestrator.
-    /// It spawns a `TradingTask` for each configured and enabled trading pair.
-    pub async fn run(&self) -> Result<()> {
-        tracing::info!("Initializing Portfolio Orchestrator Engine...");
+    /// The main, long-running loop of the trading engine.
+    pub async fn run(&mut self) -> anyhow::Result<()> {
+        // --- 1. Warm-up Phase ---
+        tracing::info!("Warming up engine: loading initial historical data...");
+        // TODO: The get_klines_by_date_range is not suitable for "last N bars".
+        // We will need a new DB method: `get_latest_klines(symbol, interval, limit)`
+        // For now, we will proceed with an empty history.
+        // let initial_klines = self.db.get_latest_klines(&self.symbol, &self.interval, KLINE_HISTORY_SIZE).await?;
+        // self.klines.extend(initial_klines);
+        tracing::info!("Engine warmup complete. History size: {}", self.klines.len());
 
-        let mut task_handles = vec![];
+        // --- 2. Live Trading Loop ---
+        let mut kline_stream = Box::pin(self.live_connector.subscribe_to_klines(
+            &self.symbol,
+            &self.interval,
+            &self.binance_settings.ws_base_url, // <-- Pass the configured URL
+        ));
+        tracing::info!("Subscribed to live kline stream. Engine is now live.");
 
-        // Loop through the pairs defined in live.toml
-        for pair_config in &self.live_config.pair_configs {
-            if !pair_config.enabled {
-                tracing::warn!(symbol = %pair_config.symbol, "Skipping disabled trading pair.");
-                continue;
+        while let Some(Ok(kline)) = kline_stream.next().await {
+            // Add new kline and maintain history size
+            self.klines.push_back(kline.clone());
+            if self.klines.len() > KLINE_HISTORY_SIZE {
+                self.klines.pop_front();
             }
 
-            tracing::info!(symbol = %pair_config.symbol, "Setting up trading task.");
+            tracing::debug!(close = %kline.close, "New kline received.");
 
-            // --- Instantiate all components for this specific task ---
+            if self.klines.len() < KLINE_HISTORY_SIZE {
+                continue; // Wait until we have a full history before trading
+            }
 
-            // 1. Create the strategies for this pair
-            let strategies = create_strategies_for_live_run(
-                &pair_config.strategies,
-                &self.app_config.strategies,
-            );
+            let current_kline = kline;
+            let history_slice: Vec<_> = self.klines.iter().cloned().collect();
 
-            if strategies.is_empty() {
-                tracing::error!(symbol = %pair_config.symbol, "No valid strategies found for pair. Skipping.");
+            // --- 1. Check for Stop-Loss Trigger ---
+            let position_to_check = self.executor.portfolio().open_positions.get(&self.symbol).cloned();
+            if let Some(open_position) = position_to_check {
+                let stop_triggered = if open_position.side == Side::Long {
+                    current_kline.low <= open_position.sl_price
+                } else {
+                    current_kline.high >= open_position.sl_price
+                };
+
+                if stop_triggered {
+                    tracing::info!(
+                        time = current_kline.open_time,
+                        sl_price = %open_position.sl_price,
+                        trigger_price = if open_position.side == Side::Long { format!("{}", current_kline.low) } else { format!("{}", current_kline.high) },
+                        "Stop-loss triggered!"
+                    );
+
+                    let close_order = OrderRequest {
+                        symbol: open_position.symbol.clone(),
+                        side: if open_position.side == Side::Long { Side::Short } else { Side::Long },
+                        quantity: open_position.quantity,
+                        leverage: open_position.leverage,
+                        sl_price: dec!(0),
+                        originating_signal: Signal::Close,
+                    };
+
+                    let execution_result = self.executor.execute(&close_order, open_position.sl_price, current_kline.open_time).await;
+                    if let Ok((execution, Some(closed_pos))) = execution_result {
+                        tracing::info!(?execution, "Stop-loss order executed and position closed.");
+                    } else if let Ok((execution, None)) = execution_result {
+                        tracing::warn!(?execution, "Stop-loss order executed but no closed position returned.");
+                    } else if let Err(e) = execution_result {
+                        tracing::error!(error = %e, "Failed to execute stop-loss order.");
+                    }
+                    continue;
+                }
+            }
+
+            // --- 2. Assess Strategy for New Signals ---
+            let signal = self.strategy.assess(&history_slice);
+            if matches!(signal, Signal::Hold) {
                 continue;
             }
-            
-            // 2. Create the Risk Manager
-            let risk_manager = Box::new(SimpleRiskManager::new(
-                self.app_config.simple_risk_manager.clone().unwrap(),
-            ));
+            // Broadcast the signal (placeholder, needs WsMessage variant)
+            // let _ = self.ws_tx.send(WsMessage::SignalGenerated(signal.clone()));
+            tracing::info!(?signal, "Strategy generated a signal.");
 
-            // 3. Create the Executor with simulation settings
-            let sim_settings = SimulationSettings {
-                slippage_percent: 0.001,
-                maker_fee: 0.001,
-                taker_fee: 0.001,
-            };
-            let executor = Box::new(SimulatedExecutor::new(
-                sim_settings,
-                dec!(10_000.0), // initial balance
-                self.ws_tx.clone(),
-            ));
-
-            // 4. Create the TradingTask
-            let mut task = TradingTask::new(
-                Symbol(pair_config.symbol.clone()),
-                pair_config.interval.clone(),
-                self.db.clone(),
-                strategies,
-                risk_manager,
-                executor,
-                self.app_config.binance.clone(),
-                self.ws_tx.clone(),
+            // --- 3. Evaluate Signal with Risk Manager ---
+            let portfolio_value = self.executor.portfolio().cash;
+            let open_position = self.executor.portfolio().open_positions.get(&self.symbol);
+            // The risk manager needs the previous bar's close for calculation.
+            let calculation_kline = &history_slice[history_slice.len() - 2];
+            let order_request_result = self.risk_manager.evaluate(
+                &signal,
+                portfolio_value,
+                &self.symbol, // Pass the symbol
+                calculation_kline, // Pass the kline with the price data
+                open_position,
             );
-            
-            // 5. Spawn the task to run concurrently
-            let handle = tokio::spawn(async move {
-                task.run().await
-            });
-            
-            task_handles.push(handle);
+
+            // --- 4. Execute Approved Order ---
+            match order_request_result {
+                Ok(Some(order_request)) => {
+                    tracing::info!(?signal, "Strategy signal approved by risk manager.");
+                    // Execute at the current bar's open price.
+                    let execution_result = self.executor.execute(&order_request, current_kline.open, current_kline.open_time).await;
+                    match execution_result {
+                        Ok((execution, Some(closed_pos))) => {
+                            tracing::info!(?execution, "Order executed and position closed.");
+                        }
+                        Ok((execution, None)) => {
+                            tracing::info!(?execution, "Order executed (entry or no position closed).");
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "Order execution failed.");
+                        }
+                    }
+                }
+                Ok(None) => {
+                    // No action needed
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Risk manager vetoed the signal.");
+                }
+            }
         }
 
-        if task_handles.is_empty() {
-            anyhow::bail!("No trading tasks were started. Check your live.toml configuration.");
-        }
-
-        tracing::info!(count = task_handles.len(), "All trading tasks have been spawned.");
-
-        // Wait for all tasks to complete. In a healthy system, this will run forever.
-        // `join_all` will return if any of the tasks exit (e.g., due to an error).
-        let results = future::join_all(task_handles).await;
-        
-        tracing::error!(?results, "One or more trading tasks have terminated. Shutting down.");
-        
-        Ok(())
+        anyhow::bail!("Kline stream unexpectedly ended.")
     }
 }

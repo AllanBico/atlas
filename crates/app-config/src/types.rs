@@ -1,30 +1,18 @@
 // In crates/app-config/src/types.rs
 
 use serde::Deserialize;
-
-use core_types::StrategyConfig;
-
-// Define the container for all strategy settings
-#[derive(Deserialize, Debug, Default, Clone)]
-pub struct StrategySettings {
-    // Each strategy will have its own optional settings block
-    pub ma_crossover: Option<MACrossoverSettings>,
-    // In the future, we could add:
-    // pub rsi_reversal: Option<RSIReversalSettings>,
-    pub supertrend: Option<SuperTrendSettings>, 
-    pub prob_reversion: Option<ProbReversionSettings>,
-}
+// Import the settings struct from our strategies crate
 use strategies::types::{MACrossoverSettings, ProbReversionSettings, SuperTrendSettings};
 use risk::types::SimpleRiskSettings;
 // use execution::types::SimulationSettings; // Removed to break cyclic dependency
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug)]
 pub struct ServerSettings {
     pub host: String,
     pub port: u16,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug)]
 pub struct Settings {
     /// The application's general settings.
     pub app: AppSettings,
@@ -42,7 +30,7 @@ pub struct Settings {
     pub simple_risk_manager: Option<SimpleRiskSettings>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug)]
 pub struct AppSettings {
     /// The environment the application is running in (e.g., "development", "production").
     pub environment: String,
@@ -64,46 +52,19 @@ pub struct BinanceSettings {
     pub ws_base_url: String,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug)]
 pub struct DatabaseSettings {
     /// The connection URL for the PostgreSQL database.
     pub url: String,
 }
 
-// --- Structs for live.toml Configuration ---
-
-/// The top-level configuration for a live or paper trading run.
-#[derive(Deserialize, Debug, Clone)]
-pub struct LiveRunConfig {
-    #[serde(default)] // Makes the whole section optional
-    pub portfolio_risk: PortfolioRiskSettings,
-    
-    #[serde(rename = "pairs")]
-    pub pair_configs: Vec<PairConfig>,
+// Define the container for all strategy settings
+#[derive(Deserialize, Debug, Default)]
+pub struct StrategySettings {
+    // Each strategy will have its own optional settings block
+    pub ma_crossover: Option<MACrossoverSettings>,
+    // In the future, we could add:
+    // pub rsi_reversal: Option<RSIReversalSettings>,
+    pub supertrend: Option<SuperTrendSettings>, 
+    pub prob_reversion: Option<ProbReversionSettings>,
 }
-
-/// Portfolio-level risk management settings.
-#[derive(Deserialize, Debug, Clone, Default)]
-pub struct PortfolioRiskSettings {
-    #[serde(default)]
-    pub daily_drawdown_percent: f64,
-    #[serde(default)]
-    pub daily_loss_limit_usd: f64,
-}
-
-/// Configuration for a single trading pair/asset.
-#[derive(Deserialize, Debug, Clone)]
-pub struct PairConfig {
-    pub symbol: String,
-    pub interval: String,
-    #[serde(default = "default_max_loss")]
-    pub max_loss_per_asset_percent: f64,
-    #[serde(default = "default_enabled")]
-    pub enabled: bool,
-    
-    pub strategies: Vec<StrategyConfig>,
-}
-
-/// Helper functions for serde defaults
-fn default_max_loss() -> f64 { 100.0 } // Default to no limit
-fn default_enabled() -> bool { true }

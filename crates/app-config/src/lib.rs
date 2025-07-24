@@ -1,13 +1,13 @@
 // In crates/app-config/src/lib.rs
 
-use config::{Config, File, Environment};
+use config::{Config, Environment, File};
 
 pub mod error;
 pub mod types;
 
 // Re-export the most important types for easy access.
 pub use error::{Error, Result};
-pub use types::Settings;
+pub use types::{LiveRunConfig, Settings};
 
 /// Loads the application settings from various sources.
 ///
@@ -33,4 +33,15 @@ pub fn load_settings() -> Result<Settings> {
     let settings: Settings = settings.try_deserialize()?;
 
     Ok(settings)
+}
+
+/// Loads the live/paper run configuration from `config/live.toml`.
+pub fn load_live_config() -> Result<LiveRunConfig> {
+    let content = std::fs::read_to_string("config/live.toml")
+        .map_err(Error::IoError)?;
+
+    let config: LiveRunConfig = toml::from_str(&content)
+        .map_err(|e| Error::LoadError(config::ConfigError::Foreign(Box::new(e))))?;
+
+    Ok(config)
 }

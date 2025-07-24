@@ -10,3 +10,5 @@ serde = { version = "1.0", features = ["derive"] }
 strategies = { path = "../strategies" }
 risk = { path = "../risk" }
 # execution = { path = "../execution" }  # Removed to break cyclic dependency
+toml = "0.8"
+core-types = { path = "../core-types" }

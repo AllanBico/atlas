@@ -43,14 +43,14 @@ h1_slow_period = 2
 m5_fast_period = 1
 m5_slow_period = 2
 confidence = 1
-# [strategies.supertrend]
-# period = 45
-# multiplier = 2.0
-# exit_multiplier = 1.5
-# volume_threshold = 1000.0 # Min volume of base asset (e.g., BTC) per bar
-# confirmation_bars = 1
-# ema_confirmation_period = 20
-# confidence = 0.30 # 80%
+[strategies.supertrend]
+period = 45
+multiplier = 2.0
+exit_multiplier = 1.5
+volume_threshold = 1000.0 # Min volume of base asset (e.g., BTC) per bar
+confirmation_bars = 1
+ema_confirmation_period = 20
+confidence = 0.30 # 80%
 
 [strategies.prob_reversion]
 bband_period = 20

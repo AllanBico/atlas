@@ -30,7 +30,7 @@ use tokio::sync::broadcast;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 mod tracing_layer;
-use engine::Engine; // Import our new Engine
+use engine::Engine;
 
 // --- Command-Line Interface Definition ---
 
@@ -137,93 +137,62 @@ async fn main() -> Result<()> {
 
     tracing::info!("Atlas application has finished successfully.");
 
+    // Temporary code to load and print live configuration
+    let live_config = app_config::load_live_config()?;
+    println!("{:#?}", live_config);
+    return Ok(());
+
     Ok(())
 }
 
 // --- "Run" Subcommand Logic ---
 
 /// The primary logic for the `run` command.
-/// This function initializes all core components and starts the web server.
-/// It will run indefinitely until terminated.
+/// Initializes shared components and launches the concurrent Engine and WebServer tasks.
 async fn run_app() -> Result<()> {
-    // --- 1. Initialization ---
-    let settings = app_config::load_settings()?;
+    // --- 1. Load All Configurations ---
+    let app_config = app_config::load_settings()?;
     tracing::info!("Application settings loaded successfully.");
+    
+    let live_run_config = app_config::load_live_config()?;
+    tracing::info!("Live run configuration loaded successfully.");
 
-    let db_pool = database::connect(&settings.database).await?;
+    // --- 2. Initialize Shared Components ---
+    let db_pool = database::connect(&app_config.database).await?;
     tracing::info!("Database connection established and migrations are up-to-date.");
 
-    // The WebSocket broadcaster is a central piece of state.
     let (ws_tx, _) = broadcast::channel::<events::WsMessage>(1024);
+    tracing::info!("WebSocket broadcast channel created.");
 
-    // --- 2. Component Instantiation ---
-    // Use a hardcoded SimulationSettings for now, as in backtest
-    let dummy_settings = execution::types::SimulationSettings {
-        maker_fee: 0.0,
-        taker_fee: 0.0,
-        slippage_percent: 0.0,
-    };
-    let executor = Box::new(SimulatedExecutor::new(
-        dummy_settings,
-        dec!(10_000.0), // Initial paper trading capital
-        ws_tx.clone(),
-    )) as Box<dyn Executor + Send>;
-
-    // Instantiate Risk Manager
-    let risk_manager = match settings.simple_risk_manager {
-        Some(risk_settings) => Box::new(SimpleRiskManager::new(risk_settings)) as Box<dyn RiskManager + Send>,
-        None => anyhow::bail!("Cannot run: simple_risk_manager settings are missing."),
-    };
-
-    // Instantiate Strategy (explicit, as in backtest)
-    let strategy: Box<dyn Strategy + Send> = if let Some(settings) = settings.strategies.ma_crossover.as_ref() {
-        Box::new(strategies::ma_crossover::MACrossover::new(settings.clone()))
-    } else if let Some(settings) = settings.strategies.supertrend.as_ref() {
-        Box::new(strategies::supertrend::SuperTrend::new(settings.clone()))
-    } else if let Some(settings) = settings.strategies.prob_reversion.as_ref() {
-        Box::new(strategies::prob_reversion::ProbReversion::new(settings.clone()))
-    } else {
-        anyhow::bail!("Cannot run: No strategies are configured in settings.");
-    };
-
-    // --- 3. Create the Trading Engine ---
-    // We will get the symbol and interval from the config in the future.
-    // For now, we'll use a placeholder.
-    let symbol = Symbol("BTCUSDT".to_string());
-    let interval = "1m".to_string(); // Use a fast interval for live testing
-
-    let mut trading_engine = Engine::new(
-        symbol,
-        interval,
-        db_pool.clone(), // Clone the DB pool for the engine
-        strategy,
-        risk_manager,
-        executor,
-        ws_tx.clone(), // The engine also gets a sender for its own direct messages
-        settings.binance.clone(), // Pass BinanceSettings
+    // --- 3. Create the Main Engine ---
+    let trading_engine = Engine::new(
+        live_run_config,
+        app_config.clone(), // Clone the app config for the engine
+        db_pool.clone(),    // Clone the DB pool for the engine
+        ws_tx.clone(),      // Clone the WS sender for the engine
     );
     
     // --- 4. Launch Concurrent Tasks ---
     tracing::info!("Launching concurrent Trading Engine and Web Server tasks...");
 
-    // Spawn the trading engine to run in its own concurrent task.
+    // Spawn the Trading Engine to run in its own concurrent task.
     let engine_handle = tokio::spawn(async move {
         trading_engine.run().await
     });
     
-    // Run the web server in the current task.
+    // Spawn the Web Server to run in its own concurrent task.
     let server_handle = tokio::spawn(async move {
-        web_server::run(settings.server, db_pool, ws_tx).await
+        web_server::run(app_config.server, db_pool, ws_tx).await
     });
 
-    // Use `tokio::select!` to wait for the first task to complete.
-    // In a healthy state, neither should complete. If one does, it's likely an error.
+    // --- 5. Supervise Tasks ---
+    // Wait for the first critical task to terminate and handle the error.
     tokio::select! {
-        engine_result = engine_handle => {
-            tracing::error!(?engine_result, "Trading engine task has terminated unexpectedly.");
+        result = engine_handle => {
+            tracing::error!(?result, "Trading engine task has terminated unexpectedly.");
         }
-        server_result = server_handle => {
-            tracing::error!(?server_result, "Web server task has terminated unexpectedly.");
+        result = server_handle => {
+            tracing::error!(?result, "Web server task has terminated unexpectedly.");
         }
     }
 

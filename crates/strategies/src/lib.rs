@@ -6,6 +6,7 @@ pub mod error;
 pub mod types;
 pub mod supertrend;
 pub mod prob_reversion;
+pub mod factory;
 /// The universal interface for a trading strategy.
 ///
 /// A strategy is responsible for analyzing market data and producing a trading `Signal`.

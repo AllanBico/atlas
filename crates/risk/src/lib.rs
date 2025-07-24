@@ -36,7 +36,6 @@ pub trait RiskManager {
         &self,
         signal: &Signal,
         portfolio_value: rust_decimal::Decimal,
-        symbol: &core_types::Symbol,
         current_kline: &Kline,
         open_position: Option<&Position>,
     ) -> Result<Option<OrderRequest>>;

@@ -35,7 +35,6 @@ impl RiskManager for SimpleRiskManager {
         &self,
         signal: &Signal,
         portfolio_value: Decimal,
-        symbol: &core_types::Symbol,
         current_kline: &Kline,
         open_position: Option<&Position>,
     ) -> Result<Option<OrderRequest>> {
@@ -97,8 +96,13 @@ impl RiskManager for SimpleRiskManager {
 
         // --- Position Sizing Logic ---
 
-        // Use the real price from the kline
+        // This assumes the `klines` data would be passed in to get the current price.
+        // For now, we will use a placeholder price.
+        // In a real implementation, this would come from the live data feed.
         let entry_price = current_kline.close;
+
+        // Convert portfolio_value to Decimal
+        // let portfolio_value = Decimal::from_f64(portfolio_value).unwrap(); // This line is removed as portfolio_value is now Decimal
 
         // Calculate stop-loss price
         let sl_price = if signal_side == Side::Long {
@@ -121,11 +125,16 @@ impl RiskManager for SimpleRiskManager {
         let quantity_base = position_size_quote / entry_price;
 
         // --- Construct the Order Request ---
+        
         let order_request = OrderRequest {
-            symbol: symbol.clone(), // Use the symbol parameter
+            // TODO: Pass the symbol context into evaluate; Kline does not contain symbol.
+            symbol: core_types::Symbol("BTCUSDT".to_string()), // Placeholder symbol
             side: signal_side,
             quantity: quantity_base,
+            
+            // USE the configured value
             leverage: self.settings.leverage,
+
             sl_price,
             originating_signal: *signal,
         };

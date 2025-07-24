@@ -10,7 +10,6 @@ risk = { path = "../risk" }
 execution = { path = "../execution" }
 api-client = { path = "../api-client" }
 database = { path = "../database" }
-app-config = { path = "../app-config" }
 
 # We will need these for the async loop and logging
 tokio = { version = "1", features = ["full"] }

@@ -6,14 +6,6 @@ log_level = "debug"
 [binance]
 api_key = "okgjgXGuaMqco4WrLGkcBYwZnvN3HNuTlMYqzqwkRbGySKUrTopXBPPVFVQS0ZVQ"
 secret_key = "rGAosDtNGMUFotn6yO2EViX9oy4AINQMNYzJgk0Xjw4sdeV0ZOE5sfPGt5TPIuB3"
-# --- Binance API Endpoints ---
-# For Live Trading (Production)
-# rest_base_url = "https://fapi.binance.com"
-# ws_base_url = "wss://fstream.binance.com"
-
-# For Paper Trading (Testnet)
-rest_base_url = "https://testnet.binancefuture.com"
-ws_base_url = "wss://stream.binancefuture.com/ws"
 
 [database]
 url = "postgres://postgres:root@localhost:5432/atlas_dev"
@@ -69,4 +61,3 @@ taker_fee = 0.0004
 
 # A reasonable assumption for slippage on a market order for a liquid pair
 slippage_percent = 0.0005 # 0.05%
-

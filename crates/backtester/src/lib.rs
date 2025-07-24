@@ -111,7 +111,6 @@ impl Backtester {
             let order_request_result = self.risk_manager.evaluate(
                 &signal,
                 portfolio_value,
-                &self.symbol, // Pass the symbol
                 calculation_kline,
                 open_position,
             );

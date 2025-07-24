@@ -200,7 +200,6 @@ async fn run_app() -> Result<()> {
         risk_manager,
         executor,
         ws_tx.clone(), // The engine also gets a sender for its own direct messages
-        settings.binance.clone(), // Pass BinanceSettings
     );
     
     // --- 4. Launch Concurrent Tasks ---

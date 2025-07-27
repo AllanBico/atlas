@@ -202,12 +202,12 @@ async fn run_app() -> Result<()> {
     
     let mut trading_engine = Engine::new(
         &live_config,
-        &settings.strategies,
-        settings.binance.clone(),
+        // &settings.strategies, // <-- REMOVE THIS
         db_pool.clone(),
         risk_manager,
         executor,
         ws_tx.clone(),
+        settings.binance.clone(), // <-- ADD THIS
     );
     
     // --- 4. Launch Concurrent Tasks ---

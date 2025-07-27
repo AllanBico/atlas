@@ -825,6 +825,7 @@ dependencies = [
  "rust_decimal_macros",
  "strategies",
  "tokio",
+ "toml",
  "tracing",
 ]
 

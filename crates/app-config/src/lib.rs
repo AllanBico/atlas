@@ -1,4 +1,5 @@
 // In crates/app-config/src/lib.rs
+// Updated with new LiveConfig structure
 
 use config::{Config, File, Environment};
 

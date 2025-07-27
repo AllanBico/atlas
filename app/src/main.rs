@@ -163,17 +163,28 @@ async fn run_app() -> Result<()> {
         taker_fee: 0.0,
         slippage_percent: 0.0,
     };
-    let executor = Box::new(SimulatedExecutor::new(
-        dummy_settings,
-        dec!(10_000.0), // Initial paper trading capital
-        ws_tx.clone(),
-    )) as Box<dyn Executor + Send>;
+    let api_client = api_client::new(&settings.binance)?;
+
+    // Conditionally instantiate the executor based on the config flag
+    let executor: Box<dyn Executor + Send> = if settings.app.live_trading_enabled {
+        tracing::warn!("LIVE TRADING IS ENABLED. REAL ORDERS WILL BE PLACED.");
+        Box::new(execution::live::LiveExecutor::new(
+            api_client.clone(),
+            ws_tx.clone(),
+            dec!(1000.0), // dummy initial capital
+        ))
+    } else {
+        Box::new(execution::simulated::SimulatedExecutor::new(
+            dummy_settings.clone(),
+            dec!(1000.0), // dummy initial capital
+            ws_tx.clone(),
+        ))
+    };
 
     // Instantiate Risk Manager
-    let risk_manager = match settings.simple_risk_manager {
-        Some(risk_settings) => Box::new(SimpleRiskManager::new(risk_settings)) as Box<dyn RiskManager + Send>,
-        None => anyhow::bail!("Cannot run: simple_risk_manager settings are missing."),
-    };
+    let risk_manager = Box::new(SimpleRiskManager::new(
+        settings.simple_risk_manager.clone().unwrap(),
+    ));
 
     // Instantiate Strategy (explicit, as in backtest)
     let strategy: Box<dyn Strategy + Send> = if let Some(settings) = settings.strategies.ma_crossover.as_ref() {

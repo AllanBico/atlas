@@ -2,11 +2,17 @@
 [app]
 # Override the log level for development to get more detailed logs.
 log_level = "debug"
-
+live_trading_enabled = true
 [binance]
-api_key = "okgjgXGuaMqco4WrLGkcBYwZnvN3HNuTlMYqzqwkRbGySKUrTopXBPPVFVQS0ZVQ"
-secret_key = "rGAosDtNGMUFotn6yO2EViX9oy4AINQMNYzJgk0Xjw4sdeV0ZOE5sfPGt5TPIuB3"
+api_key = "31fbf16926ce01bfbf2dad27e1c087fc89749d9c1ea8d5c45db3c4c99620c920"
+secret_key = "9ae595bb00812a75a3f1f43932599eba8177d668690a664eaea5c0f0071b9431"
+# For Paper Trading (Testnet)
+rest_base_url = "https://testnet.binancefuture.com" # <-- IT IS SET HERE
+ws_base_url = "wss://fstream.binancefuture.com"
 
+# For Live Trading (Production) - for future use
+# rest_base_url = "https://fapi.binance.com"
+# ws_base_url = "wss://fstream.binance.com"
 [database]
 url = "postgres://postgres:root@localhost:5432/atlas_dev"
 

@@ -105,3 +105,15 @@ pub struct WsKline {
     #[serde(rename = "x")]
     pub is_closed: bool, // Is this kline final?
 }
+
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct NewOrderResponse {
+    pub symbol: String,
+    pub side: String, // "BUY" or "SELL"
+    pub r#type: String, // "MARKET", "LIMIT", etc.
+    pub avg_price: Decimal, // The actual average fill price
+    pub executed_qty: Decimal, // The actual filled quantity
+    pub cum_quote: Decimal, // The cumulative quote asset transacted
+}

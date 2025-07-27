@@ -21,6 +21,7 @@ use std::collections::HashMap;
 
 /// Represents the state of the simulated trading portfolio.
 #[derive(Debug)]
+#[derive(Clone)]
 pub struct Portfolio {
     pub initial_capital: Decimal,
     /// The total cash balance of the portfolio (e.g., in USDT).

@@ -6,7 +6,7 @@ use sha2::Sha256;
 use crate::types::FuturesAccountInfo;
 use serde_json::Value;
 use app_config::types::BinanceSettings;
-use core_types::{Kline, Symbol};
+use core_types::{Kline, Symbol, Side};
 // Create a type alias for the HMAC-SHA256 implementation.
 type HmacSha256 = Hmac<Sha256>;
 
@@ -27,12 +27,14 @@ impl ApiClient {
         let http_client = reqwest::Client::new();
         let api_key = settings.api_key.clone();
         let secret_key = settings.secret_key.clone();
-        let base_url = "https://fapi.binance.com".to_string();
+        // The base_url is taken directly from the settings struct
+        // that was populated from your .toml file.
+        let base_url = settings.rest_base_url.clone(); // <-- IT IS READ HERE
         Ok(ApiClient {
             http_client,
             api_key,
             secret_key,
-            base_url,
+            base_url, // <-- AND STORED HERE
         })
     }
 
@@ -179,6 +181,89 @@ impl ApiClient {
             .collect();
 
         Ok(klines)
+    }
+    pub async fn set_leverage(&self, symbol: &Symbol, leverage: u8) -> Result<()> {
+        let mut params = format!("symbol={}&leverage={}", symbol.0, leverage);
+        self.create_signed_query(&mut params);
+
+        let url = format!("{}/fapi/v1/leverage", self.base_url);
+
+        let response = self.http_client
+            .post(&url)
+            .header("X-MBX-APIKEY", &self.api_key)
+            .body(params)
+            .send()
+            .await
+            .map_err(Error::RequestFailed)?;
+
+        let text = response.text().await.map_err(Error::RequestFailed)?;
+        let value: Value = serde_json::from_str(&text).map_err(Error::DeserializationFailed)?;
+
+        if let Some(code) = value.get("code") {
+            // A successful leverage change doesn't have a code, but errors do.
+            let msg = value.get("msg").and_then(Value::as_str).unwrap_or("Unknown error").to_string();
+            return Err(Error::ApiError { code: code.as_i64().unwrap_or(-1), msg });
+        }
+        
+        Ok(())
+    }
+
+    /// Places a new market order.
+    /// Corresponds to `POST /fapi/v1/order`.
+    pub async fn place_market_order(
+        &self,
+        symbol: &Symbol,
+        side: &core_types::Side,
+        quantity: rust_decimal::Decimal,
+    ) -> Result<NewOrderResponse> {
+        let side_str = match side {
+            core_types::Side::Long => "BUY",
+            core_types::Side::Short => "SELL",
+        };
+
+    // For Hedge Mode, we must specify the position side.
+    // For One-way Mode, this parameter is ignored but doesn't hurt.
+    // We will assume "BOTH" for now, as this works for One-Way and is a common setting.
+    // Let's check the docs to be sure.
+    // --- Correction based on docs ---
+    // For Hedge mode, it must be LONG or SHORT.
+    // Let's assume the user wants to trade one way for now and will set Hedge mode later.
+    // The most robust solution is to ALWAYS send the positionSide.
+    
+    let position_side_str = match side {
+        core_types::Side::Long => "LONG",
+        core_types::Side::Short => "SHORT",
+    };
+
+    let quantity_str = format!("{:.3}", quantity);
+
+    let mut params = format!(
+        "symbol={}&side={}&type=MARKET&quantity={}&positionSide={}",
+        symbol.0, side_str, quantity_str, position_side_str
+    );
+        self.create_signed_query(&mut params);
+
+        let url = format!("{}/fapi/v1/order", self.base_url);
+
+        let response = self.http_client
+            .post(&url)
+            .header("X-MBX-APIKEY", &self.api_key)
+            .body(params)
+            .send()
+            .await
+            .map_err(Error::RequestFailed)?;
+            
+        let text = response.text().await.map_err(Error::RequestFailed)?;
+        let value: Value = serde_json::from_str(&text).map_err(Error::DeserializationFailed)?;
+        
+        if let Some(code) = value.get("code") {
+            let msg = value.get("msg").and_then(Value::as_str).unwrap_or("Unknown error").to_string();
+            return Err(Error::ApiError { code: code.as_i64().unwrap_or(-1), msg });
+        }
+        
+        let order_response: NewOrderResponse = serde_json::from_value(value).map_err(Error::DeserializationFailed)?;
+
+        Ok(order_response)
     }
 }
 

@@ -38,6 +38,8 @@ pub struct AppSettings {
     pub log_level: String,
 
     pub optimizer_cores: u32,
+    #[serde(default)] // This makes the field optional, defaulting to `false`
+    pub live_trading_enabled: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -46,6 +48,8 @@ pub struct BinanceSettings {
     pub api_key: String,
     /// The secret key for Binance.
     pub secret_key: String,
+    pub rest_base_url: String, // <-- It gets loaded into this field
+    pub ws_base_url: String,
 }
 
 #[derive(Deserialize, Debug)]

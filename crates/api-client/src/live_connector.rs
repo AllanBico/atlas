@@ -8,7 +8,7 @@ use futures::Stream;
 use futures_util::StreamExt;
 use tokio_tungstenite::connect_async;
 
-const BINANCE_WS_BASE_URL: &str = "wss://fstream.binance.com/ws";
+const BINANCE_WS_BASE_URL: &str = "wss://fstream.binancefuture.com/ws";
 
 /// A connector for receiving live data streams from Binance.
 #[derive(Clone)]

@@ -14,7 +14,7 @@ pub use error::{Error, Result};
 /// A `RiskManager` is responsible for evaluating a trading `Signal` against a set of
 /// risk rules and, if approved, calculating the appropriate position size and creating
 /// a final `OrderRequest`.
-pub trait RiskManager {
+pub trait RiskManager: Sync {
     /// The name of the risk management strategy.
     fn name(&self) -> &'static str;
 
@@ -23,7 +23,9 @@ pub trait RiskManager {
     /// # Arguments
     ///
     /// * `signal`: The trading `Signal` produced by a strategy.
+    /// * `symbol`: The symbol for which the signal was generated.
     /// * `portfolio_value`: The total value of the account.
+    /// * `current_kline`: The current kline data for price information.
     /// * `open_position`: An `Option` containing the currently open position for the
     ///   signal's symbol, if one exists.
     ///
@@ -35,6 +37,7 @@ pub trait RiskManager {
     fn evaluate(
         &self,
         signal: &Signal,
+        symbol: &core_types::Symbol,
         portfolio_value: rust_decimal::Decimal,
         current_kline: &Kline,
         open_position: Option<&Position>,

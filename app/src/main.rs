@@ -198,19 +198,16 @@ async fn run_app() -> Result<()> {
     };
 
     // --- 3. Create the Trading Engine ---
-    // We will get the symbol and interval from the config in the future.
-    // For now, we'll use a placeholder.
-    let symbol = Symbol("BTCUSDT".to_string());
-    let interval = "1m".to_string(); // Use a fast interval for live testing
-
+    let live_config = app_config::load_live_config()?;
+    
     let mut trading_engine = Engine::new(
-        symbol,
-        interval,
-        db_pool.clone(), // Clone the DB pool for the engine
-        strategy,
+        &live_config,
+        &settings.strategies,
+        settings.binance.clone(),
+        db_pool.clone(),
         risk_manager,
         executor,
-        ws_tx.clone(), // The engine also gets a sender for its own direct messages
+        ws_tx.clone(),
     );
     
     // --- 4. Launch Concurrent Tasks ---

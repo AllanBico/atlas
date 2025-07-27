@@ -7,7 +7,7 @@ pub mod types;
 
 // Re-export the most important types for easy access.
 pub use error::{Error, Result};
-pub use types::Settings;
+pub use types::{Settings, LiveConfig};
 
 /// Loads the application settings from various sources.
 ///
@@ -33,4 +33,12 @@ pub fn load_settings() -> Result<Settings> {
     let settings: Settings = settings.try_deserialize()?;
 
     Ok(settings)
+}
+
+/// Loads the live trading portfolio configuration from `live.toml`.
+pub fn load_live_config() -> Result<LiveConfig> {
+    let content = std::fs::read_to_string("config/live.toml")?;
+    
+    let config: LiveConfig = toml::from_str(&content)?;
+    Ok(config)
 }

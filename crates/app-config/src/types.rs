@@ -42,7 +42,7 @@ pub struct AppSettings {
     pub live_trading_enabled: bool,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct BinanceSettings {
     /// The API key for Binance.
     pub api_key: String,
@@ -67,4 +67,27 @@ pub struct StrategySettings {
     // pub rsi_reversal: Option<RSIReversalSettings>,
     pub supertrend: Option<SuperTrendSettings>, 
     pub prob_reversion: Option<ProbReversionSettings>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct LiveConfig {
+    // The `serde(default)` allows the file to be empty without crashing.
+    #[serde(default)]
+    pub bot: Vec<BotConfig>,
+}
+
+/// Represents the configuration for a single trading bot instance.
+#[derive(Deserialize, Debug, Clone)]
+pub struct BotConfig {
+    #[serde(default = "default_as_true")]
+    pub enabled: bool,
+    pub symbol: String,
+    pub interval: String,
+    pub strategy_name: String,
+    pub strategy_params: String, // The key to look up in StrategySettings
+}
+
+// Helper for serde to default `enabled` to true if missing.
+fn default_as_true() -> bool {
+    true
 }

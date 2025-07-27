@@ -110,6 +110,7 @@ impl Backtester {
             let calculation_kline = &klines[i - 1];
             let order_request_result = self.risk_manager.evaluate(
                 &signal,
+                &self.symbol,
                 portfolio_value,
                 calculation_kline,
                 open_position,

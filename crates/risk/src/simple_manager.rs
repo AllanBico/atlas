@@ -34,6 +34,7 @@ impl RiskManager for SimpleRiskManager {
     fn evaluate(
         &self,
         signal: &Signal,
+        symbol: &core_types::Symbol,
         portfolio_value: Decimal,
         current_kline: &Kline,
         open_position: Option<&Position>,
@@ -127,8 +128,7 @@ impl RiskManager for SimpleRiskManager {
         // --- Construct the Order Request ---
         
         let order_request = OrderRequest {
-            // TODO: Pass the symbol context into evaluate; Kline does not contain symbol.
-            symbol: core_types::Symbol("BTCUSDT".to_string()), // Placeholder symbol
+            symbol: symbol.clone(), // Use the actual symbol passed to the method
             side: signal_side,
             quantity: quantity_base,
             

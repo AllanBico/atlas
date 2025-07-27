@@ -16,7 +16,7 @@ pub use types::SimulationSettings;
 /// submitting it to a target, which could be a live exchange or a simulation engine.
 /// It must handle the complexities of order submission and confirmation.
 #[async_trait]
-pub trait Executor {
+pub trait Executor: Sync {
     /// The name of the executor (e.g., "LiveBinanceExecutor", "SimulatedBacktestExecutor").
     fn name(&self) -> &'static str;
 

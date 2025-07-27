@@ -1,0 +1,32 @@
+# In the new config/live.toml
+
+# We can define reusable parameter sets at the top
+[param_sets]
+  [param_sets.fast_btc_ma]
+  h1_fast_period = 1
+h1_slow_period = 2
+m5_fast_period = 1
+m5_slow_period = 2
+confidence = 1
+  
+  [param_sets.slow_eth_ma]
+h1_fast_period = 1
+h1_slow_period = 2
+m5_fast_period = 1
+m5_slow_period = 2
+confidence = 1
+
+# Then, our bot definitions reference these sets
+[[bot]]
+enabled = true
+symbol = "BTCUSDT"
+interval = "1m"
+strategy_name = "ma_crossover"
+params_key = "fast_btc_ma" # Reference the parameter set
+
+[[bot]]
+enabled = true
+symbol = "ETHUSDT"
+interval = "1m"
+strategy_name = "ma_crossover"
+params_key = "slow_eth_ma" # Reference a DIFFERENT parameter set

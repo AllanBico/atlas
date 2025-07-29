@@ -13,48 +13,14 @@ use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 use events::WsMessage;
 use crate::bot::Bot;
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
 use app_config::types::{BinanceSettings, LiveConfig};
-use execution::types::Portfolio;
-=======
-use app_config::types::{BinanceSettings, LiveConfig, StrategySettings};
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
-=======
-use app_config::types::{BinanceSettings, LiveConfig, StrategySettings};
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
-=======
-use app_config::types::{BinanceSettings, LiveConfig, StrategySettings};
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
-=======
-use app_config::types::{BinanceSettings, LiveConfig, StrategySettings};
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
 use strategies::ma_crossover::MACrossover;
 use strategies::prob_reversion::ProbReversion;
 use strategies::supertrend::SuperTrend;
 pub mod bot;
 const KLINE_HISTORY_SIZE: usize = 2; // Same as in backtester
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
 use anyhow;
 use toml;
-pub mod reconciler;
-=======
-
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
-=======
-
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
-=======
-
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
-=======
-
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
 /// The core trading engine that orchestrates live data and decision making for a portfolio of bots.
 pub struct Engine<'a> {
     /// A map of all active bot instances, keyed by their unique stream name (e.g., "btcusdt@kline_1m").
@@ -82,20 +48,7 @@ impl<'a> Engine<'a> {
         risk_manager: Box<dyn RiskManager + Send + Sync + 'a>,
         executor: Box<dyn Executor + Send + Sync + 'a>,
         ws_tx: broadcast::Sender<WsMessage>,
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
         binance_settings: BinanceSettings, // Pass this through
-        portfolio: Arc<Mutex<Portfolio>>, // Shared portfolio state
-=======
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
-=======
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
-=======
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
-=======
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
     ) -> Self {
         let mut bots = HashMap::new();
 

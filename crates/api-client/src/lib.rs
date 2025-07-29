@@ -1,14 +1,14 @@
-// In crates/engine/src/lib.rs
-
 use api_client::live_connector::LiveConnector;
 use core_types::{Symbol, Kline};
 use database::Db;
 use execution::Executor;
+use execution::types::Portfolio;
 use futures::StreamExt;
 use risk::RiskManager;
 use strategies::Strategy;
 use std::collections::HashMap;
-use tokio::sync::broadcast;
+use std::sync::Arc;
+use tokio::sync::{broadcast, Mutex};
 use events::WsMessage;
 use crate::bot::Bot;
 use app_config::types::{BinanceSettings, LiveConfig};
@@ -20,11 +20,12 @@ pub mod bot;
 const KLINE_HISTORY_SIZE: usize = 2; // Same as in backtester
 use anyhow;
 use toml;
+
 /// The core trading engine that orchestrates live data and decision making for a portfolio of bots.
 pub struct Engine<'a> {
     /// A map of all active bot instances, keyed by their unique stream name (e.g., "btcusdt@kline_1m").
     bots: HashMap<String, Bot<'a>>,
-    
+
     // The engine still needs these components to pass down to the bots' logic
     db: Db,
     risk_manager: Box<dyn RiskManager + Send + Sync + 'a>,
@@ -32,18 +33,19 @@ pub struct Engine<'a> {
     live_connector: LiveConnector,
     binance_settings: BinanceSettings,
     ws_tx: broadcast::Sender<WsMessage>,
+    portfolio: Arc<Mutex<Portfolio>>, // Shared portfolio state
 }
 
 impl<'a> Engine<'a> {
     /// Creates a new Engine and instantiates all bots based on the provided configuration.
     pub fn new(
         live_config: &LiveConfig,
-        // We no longer need the main StrategySettings, as all params are in live.toml
         db: Db,
         risk_manager: Box<dyn RiskManager + Send + Sync + 'a>,
         executor: Box<dyn Executor + Send + Sync + 'a>,
         ws_tx: broadcast::Sender<WsMessage>,
         binance_settings: BinanceSettings, // Pass this through
+        portfolio: Arc<Mutex<Portfolio>>, // Shared portfolio state
     ) -> Self {
         let mut bots = HashMap::new();
 
@@ -58,7 +60,7 @@ impl<'a> Engine<'a> {
             }
 
             // --- New Strategy Factory Logic ---
-            
+
             // 1. Find the parameter set for this bot using its `params_key`.
             let params_value = match param_sets.get(&bot_config.params_key) {
                 Some(params) => params.clone(),
@@ -70,7 +72,7 @@ impl<'a> Engine<'a> {
                     continue;
                 }
             };
-            
+
             // 2. Based on `strategy_name`, deserialize the params into the correct struct.
             let strategy_result: anyhow::Result<Box<dyn Strategy + Send + 'a>> = (|| {
                 match bot_config.strategy_name.as_str() {
@@ -101,14 +103,14 @@ impl<'a> Engine<'a> {
                     continue;
                 }
             };
-            
+
             // Create the new bot instance
             let bot = Bot::new(
                 Symbol(bot_config.symbol.clone()),
                 bot_config.interval.clone(),
                 strategy,
             );
-            
+
             // Use the WebSocket stream name as the unique key
             let stream_name = format!("{}@kline_{}", bot_config.symbol.to_lowercase(), bot_config.interval);
             bots.insert(stream_name, bot);
@@ -122,6 +124,7 @@ impl<'a> Engine<'a> {
             live_connector: LiveConnector::new(),
             binance_settings,
             ws_tx,
+            portfolio,
         }
     }
 
@@ -143,7 +146,7 @@ impl<'a> Engine<'a> {
             // Prevent the engine from exiting
             loop { tokio::time::sleep(std::time::Duration::from_secs(60)).await; }
         }
-        
+
         let mut combined_stream = Box::pin(self.live_connector.subscribe_to_streams(
             stream_names,
             &self.binance_settings.ws_base_url,
@@ -170,7 +173,7 @@ impl<'a> Engine<'a> {
                     volume: event.kline.volume,
                     close_time: event.kline.close_time,
                 };
-                
+
                 // Delegate all decision-making logic to the bot instance.
                 if let Err(e) = bot.on_kline(kline, &self.risk_manager, &mut self.executor).await {
                     tracing::error!(bot_id = %bot.id, error = %e, "An error occurred in a bot's on_kline handler.");
@@ -179,7 +182,7 @@ impl<'a> Engine<'a> {
                 tracing::warn!(stream = %stream_key, "Received data for a stream with no configured bot.");
             }
         }
-        
+
         anyhow::bail!("Combined kline stream unexpectedly ended.")
     }
 }

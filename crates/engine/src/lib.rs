@@ -16,8 +16,12 @@ use crate::bot::Bot;
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 use app_config::types::{BinanceSettings, LiveConfig};
 use execution::types::Portfolio;
+=======
+use app_config::types::{BinanceSettings, LiveConfig, StrategySettings};
+>>>>>>> parent of a9745ac (Phase 22.5 Complete)
 =======
 use app_config::types::{BinanceSettings, LiveConfig, StrategySettings};
 >>>>>>> parent of a9745ac (Phase 22.5 Complete)
@@ -35,9 +39,13 @@ const KLINE_HISTORY_SIZE: usize = 2; // Same as in backtester
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 use anyhow;
 use toml;
 pub mod reconciler;
+=======
+
+>>>>>>> parent of a9745ac (Phase 22.5 Complete)
 =======
 
 >>>>>>> parent of a9745ac (Phase 22.5 Complete)
@@ -77,8 +85,11 @@ impl<'a> Engine<'a> {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         binance_settings: BinanceSettings, // Pass this through
         portfolio: Arc<Mutex<Portfolio>>, // Shared portfolio state
+=======
+>>>>>>> parent of a9745ac (Phase 22.5 Complete)
 =======
 >>>>>>> parent of a9745ac (Phase 22.5 Complete)
 =======

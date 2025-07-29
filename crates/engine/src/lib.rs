@@ -13,17 +13,24 @@ use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 use events::WsMessage;
 use crate::bot::Bot;
+<<<<<<< HEAD
 use app_config::types::{BinanceSettings, LiveConfig};
 use execution::types::Portfolio;
+=======
+use app_config::types::{BinanceSettings, LiveConfig, StrategySettings};
+>>>>>>> parent of a9745ac (Phase 22.5 Complete)
 use strategies::ma_crossover::MACrossover;
 use strategies::prob_reversion::ProbReversion;
 use strategies::supertrend::SuperTrend;
-use strategies::types::{MACrossoverSettings, ProbReversionSettings, SuperTrendSettings};
 pub mod bot;
 const KLINE_HISTORY_SIZE: usize = 2; // Same as in backtester
+<<<<<<< HEAD
 use anyhow;
 use toml;
 pub mod reconciler;
+=======
+
+>>>>>>> parent of a9745ac (Phase 22.5 Complete)
 /// The core trading engine that orchestrates live data and decision making for a portfolio of bots.
 pub struct Engine<'a> {
     /// A map of all active bot instances, keyed by their unique stream name (e.g., "btcusdt@kline_1m").
@@ -45,19 +52,19 @@ impl<'a> Engine<'a> {
     /// Creates a new Engine and instantiates all bots based on the provided configuration.
     pub fn new(
         live_config: &LiveConfig,
-        // We no longer need the main StrategySettings, as all params are in live.toml
+        strategy_settings: &StrategySettings,
+        binance_settings: BinanceSettings,
         db: Db,
         risk_manager: Box<dyn RiskManager + Send + Sync + 'a>,
         executor: Box<dyn Executor + Send + Sync + 'a>,
         ws_tx: broadcast::Sender<WsMessage>,
+<<<<<<< HEAD
         binance_settings: BinanceSettings, // Pass this through
         portfolio: Arc<Mutex<Portfolio>>, // Shared portfolio state
+=======
+>>>>>>> parent of a9745ac (Phase 22.5 Complete)
     ) -> Self {
         let mut bots = HashMap::new();
-
-        // Convert the generic `param_sets` TOML Value into a more usable Table.
-        let default_param_sets = toml::map::Map::new();
-        let param_sets = live_config.param_sets.as_table().unwrap_or(&default_param_sets);
 
         // Iterate through the bot configurations from live.toml
         for bot_config in &live_config.bot {
@@ -65,50 +72,31 @@ impl<'a> Engine<'a> {
                 continue; // Skip disabled bots
             }
 
-            // --- New Strategy Factory Logic ---
-            
-            // 1. Find the parameter set for this bot using its `params_key`.
-            let params_value = match param_sets.get(&bot_config.params_key) {
-                Some(params) => params.clone(),
-                None => {
-                    tracing::warn!(
-                        key = %bot_config.params_key,
-                        "Parameter set key not found in live.toml [param_sets]. Skipping bot."
-                    );
-                    continue;
-                }
-            };
-            
-            // 2. Based on `strategy_name`, deserialize the params into the correct struct.
-            let strategy_result: anyhow::Result<Box<dyn Strategy + Send + 'a>> = (|| {
-                match bot_config.strategy_name.as_str() {
+            // --- Strategy Factory Logic ---
+            // Find the correct strategy parameters from the main config
+            // and instantiate the strategy trait object.
+            let strategy: Box<dyn Strategy + Send + 'a> = 
+                match bot_config.strategy_params.as_str() {
                     "ma_crossover" => {
-                        let params: MACrossoverSettings = params_value.try_into()?;
-                        Ok(Box::new(MACrossover::new(params)) as Box<dyn Strategy + Send + 'a>)
+                        let params = strategy_settings.ma_crossover.clone()
+                            .expect("Missing ma_crossover params in main config");
+                        Box::new(MACrossover::new(params))
                     },
                     "supertrend" => {
-                        let params: SuperTrendSettings = params_value.try_into()?;
-                        Ok(Box::new(SuperTrend::new(params)) as Box<dyn Strategy + Send + 'a>)
+                        let params = strategy_settings.supertrend.clone()
+                            .expect("Missing supertrend params in main config");
+                        Box::new(SuperTrend::new(params))
                     },
                     "prob_reversion" => {
-                        let params: ProbReversionSettings = params_value.try_into()?;
-                        Ok(Box::new(ProbReversion::new(params)) as Box<dyn Strategy + Send + 'a>)
+                        let params = strategy_settings.prob_reversion.clone()
+                            .expect("Missing prob_reversion params in main config");
+                        Box::new(ProbReversion::new(params))
                     },
-                    unknown => anyhow::bail!("Unknown strategy_name '{}'", unknown),
-                }
-            })();
-
-            let strategy = match strategy_result {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::warn!(
-                        bot_config = ?bot_config,
-                        error = %e,
-                        "Failed to create strategy, likely due to mismatched params. Skipping bot."
-                    );
-                    continue;
-                }
-            };
+                    _ => {
+                        tracing::warn!(name = %bot_config.strategy_params, "Unknown strategy params key in live.toml, skipping bot.");
+                        continue;
+                    }
+                };
             
             // Create the new bot instance
             let bot = Bot::new(

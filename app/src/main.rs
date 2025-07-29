@@ -218,12 +218,20 @@ async fn run_app() -> Result<()> {
     // Create the Trading Engine instance
     let mut trading_engine = Engine::new(
         &live_config,
+<<<<<<< HEAD
+=======
+        &settings.strategies,
+        settings.binance.clone(),
+>>>>>>> parent of a9745ac (Phase 22.5 Complete)
         db_pool.clone(),
         risk_manager,
         executor,
         ws_tx.clone(),
+<<<<<<< HEAD
         settings.binance.clone(),
         Arc::clone(&portfolio), // Give it a pointer to the shared portfolio
+=======
+>>>>>>> parent of a9745ac (Phase 22.5 Complete)
     );
 
     tracing::info!("Launching concurrent tasks: Engine, WebServer, StateReconciler...");

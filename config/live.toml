@@ -1,58 +1,32 @@
-# In config/live.toml.example
+# In the new config/live.toml
 
-# ===============================================
-# Reusable Parameter Sets
-# ===============================================
-# Define named parameter sets here. Bots can then reference them by key.
-
+# We can define reusable parameter sets at the top
 [param_sets]
-  # Parameters for a faster MACrossover, tuned for a volatile asset like BTC
   [param_sets.fast_btc_ma]
-  # The keys here MUST match the fields in the `MACrossoverSettings` Rust struct.
   h1_fast_period = 1
 h1_slow_period = 2
 m5_fast_period = 1
 m5_slow_period = 2
 confidence = 1
-
-  # Parameters for a slower MACrossover, for a less volatile asset
+  
   [param_sets.slow_eth_ma]
-  h1_fast_period = 1
+h1_fast_period = 1
 h1_slow_period = 2
 m5_fast_period = 1
 m5_slow_period = 2
 confidence = 1
 
-  # Parameters for a SuperTrend strategy
-  [param_sets.slow_sol_ma]
-  h1_fast_period = 1
-h1_slow_period = 2
-m5_fast_period = 1
-m5_slow_period = 2
-confidence = 1
-
-# ===============================================
-# Bot Portfolio Definition
-# ===============================================
-# Each [[bot]] entry defines one independent trading instance.
-
+# Then, our bot definitions reference these sets
 [[bot]]
 enabled = true
 symbol = "BTCUSDT"
 interval = "1m"
 strategy_name = "ma_crossover"
-params_key = "fast_btc_ma"
+params_key = "fast_btc_ma" # Reference the parameter set
 
 [[bot]]
 enabled = true
 symbol = "ETHUSDT"
 interval = "1m"
 strategy_name = "ma_crossover"
-params_key = "slow_eth_ma" 
-
-[[bot]]
-enabled = true
-symbol = "SOLUSDT"
-interval = "5m"
-strategy_name = "ma_crossover"
-params_key = "slow_sol_ma"
+params_key = "slow_eth_ma" # Reference a DIFFERENT parameter set

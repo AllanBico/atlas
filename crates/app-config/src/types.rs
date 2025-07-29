@@ -1,7 +1,6 @@
 // In crates/app-config/src/types.rs
 
 use serde::Deserialize;
-use toml::Value; // Import toml::Value
 // Import the settings struct from our strategies crate
 use strategies::types::{MACrossoverSettings, ProbReversionSettings, SuperTrendSettings};
 use risk::types::SimpleRiskSettings;
@@ -70,16 +69,11 @@ pub struct StrategySettings {
     pub prob_reversion: Option<ProbReversionSettings>,
 }
 
-/// Represents the configuration for the entire live trading portfolio.
-/// Deserialized from `live.toml`.
 #[derive(Deserialize, Debug, Clone)]
 pub struct LiveConfig {
+    // The `serde(default)` allows the file to be empty without crashing.
     #[serde(default)]
     pub bot: Vec<BotConfig>,
-
-    // This will capture the entire [param_sets] table as a generic TOML value.
-    #[serde(default = "default_param_sets")]
-    pub param_sets: Value,
 }
 
 /// Represents the configuration for a single trading bot instance.
@@ -90,15 +84,10 @@ pub struct BotConfig {
     pub symbol: String,
     pub interval: String,
     pub strategy_name: String,
-    pub params_key: String, // Renamed from strategy_params
+    pub strategy_params: String, // The key to look up in StrategySettings
 }
 
 // Helper for serde to default `enabled` to true if missing.
 fn default_as_true() -> bool {
     true
-}
-
-// Helper for serde to default `param_sets` to an empty TOML table if missing.
-fn default_param_sets() -> Value {
-    Value::Table(toml::map::Map::new())
 }

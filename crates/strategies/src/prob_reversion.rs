@@ -2,7 +2,7 @@
 
 use crate::types::ProbReversionSettings;
 use crate::{Signal, Strategy};
-use core_types::{Kline, Side};
+use core_types::Kline;
 use rust_decimal::prelude::*;
 use ta::indicators::{BollingerBands, RelativeStrengthIndex as Rsi, SimpleMovingAverage as Sma};
 use ta::{Next};

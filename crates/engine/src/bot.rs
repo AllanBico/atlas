@@ -3,8 +3,11 @@
 use core_types::{Kline, Symbol, Signal, Side, OrderRequest};
 use strategies::Strategy;
 use std::collections::VecDeque;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use risk::RiskManager;
 use execution::Executor;
+use execution::types::Portfolio;
 use rust_decimal_macros::dec;
 
 const KLINE_HISTORY_SIZE: usize = 2; // The number of klines to maintain for the strategy.
@@ -49,7 +52,8 @@ impl<'a> Bot<'a> {
         kline: Kline,
         risk_manager: &Box<dyn RiskManager + Send + Sync + 'a>,
         executor: &mut Box<dyn Executor + Send + Sync + 'a>,
-    ) -> anyhow::Result<()> {
+        portfolio: &Arc<Mutex<Portfolio>>,
+    ) -> Result<(), anyhow::Error> {
         // Add new kline to our local cache and maintain history size
         self.klines.push_back(kline.clone());
         if self.klines.len() > KLINE_HISTORY_SIZE {
@@ -69,7 +73,11 @@ impl<'a> Bot<'a> {
         let history_slice: Vec<_> = self.klines.iter().cloned().collect();
 
         // 1. Check for Stop-Loss Trigger
-        let position_to_check = executor.portfolio().open_positions.get(&self.symbol).cloned();
+        let position_to_check = {
+            let portfolio_guard = portfolio.lock().await;
+            portfolio_guard.open_positions.get(&self.symbol).cloned()
+        };
+        
         if let Some(open_position) = position_to_check {
             let current_price = current_kline.close;
             let should_trigger_sl = match open_position.side {
@@ -99,7 +107,13 @@ impl<'a> Bot<'a> {
                     originating_signal: Signal::Close,
                 };
                 
-                let _ = executor.execute(&close_order, current_price, current_kline.open_time).await;
+                let mut portfolio_guard = portfolio.lock().await;
+                let _ = executor.execute(
+                    &close_order,
+                    current_price,
+                    current_kline.open_time,
+                    &mut *portfolio_guard,
+                ).await;
                 return Ok(()); // Skip strategy evaluation after stop-loss
             }
         }
@@ -112,21 +126,33 @@ impl<'a> Bot<'a> {
         tracing::info!(bot_id = %self.id, ?signal, "Strategy generated a signal.");
 
         // 3. Evaluate Signal with Risk Manager
-        let portfolio_value = executor.portfolio().cash;
-        let open_position = executor.portfolio().open_positions.get(&self.symbol);
+        let (portfolio_value, open_position) = {
+            let portfolio_guard = portfolio.lock().await;
+            (
+                portfolio_guard.cash,
+                portfolio_guard.open_positions.get(&self.symbol).cloned()
+            )
+        };
+        
         let calculation_kline = &history_slice[history_slice.len() - 2];
         let order_request_result = risk_manager.evaluate(
             &signal,
             &self.symbol,
             portfolio_value,
             calculation_kline,
-            open_position,
+            open_position.as_ref(),
         );
 
         // 4. Execute Approved Order
         if let Ok(Some(order_request)) = order_request_result {
             tracing::info!(bot_id = %self.id, ?order_request, "Signal approved by risk manager.");
-            let _ = executor.execute(&order_request, current_kline.open, current_kline.open_time).await;
+            let mut portfolio_guard = portfolio.lock().await;
+            let _ = executor.execute(
+                &order_request,
+                current_kline.open,
+                current_kline.open_time,
+                &mut *portfolio_guard,
+            ).await;
         } else if let Err(e) = order_request_result {
             tracing::warn!(bot_id = %self.id, error = %e, "Risk manager vetoed the signal.");
         }

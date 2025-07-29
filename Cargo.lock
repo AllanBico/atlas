@@ -179,6 +179,7 @@ name = "app-config"
 version = "0.1.0"
 dependencies = [
  "config",
+ "core-types",
  "risk",
  "serde",
  "strategies",

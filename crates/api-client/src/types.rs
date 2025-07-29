@@ -33,12 +33,35 @@ pub struct FuturesAsset {
     pub available_balance: Decimal,
 }
 
-/// Represents the overall futures account information.
+/// Represents a single open position as returned by the account endpoint.
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct FuturesAccountInfo {
+pub struct PositionInfo {
+    /// The trading pair symbol (e.g., "BTCUSDT").
+    pub symbol: String,
+    /// The quantity of the position (positive for long, negative for short).
+    pub position_amt: Decimal,
+    /// The average entry price of the position.
+    pub entry_price: Decimal,
+    /// The current mark price of the position.
+    pub mark_price: Decimal,
+    /// The unrealized profit/loss of the position.
+    pub unrealized_profit: Decimal,
+    /// The leverage used for the position (e.g., "10x").
+    #[serde(rename = "leverage")]
+    pub leverage: String,
+    /// The side of the position ("LONG", "SHORT", or "BOTH").
+    pub position_side: String,
+}
+
+/// Represents the overall futures account state.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountState {
     /// A list of assets in the futures account.
     pub assets: Vec<FuturesAsset>,
+    /// A list of open positions in the account.
+    pub positions: Vec<PositionInfo>,
     /// The total wallet balance in USDT.
     pub total_wallet_balance: Decimal,
     /// The total unrealized profit and loss in USDT.
@@ -48,6 +71,10 @@ pub struct FuturesAccountInfo {
     /// The total available balance for new positions in USDT.
     pub total_available_balance: Option<Decimal>,
 }
+
+// Keep the old type for backward compatibility
+#[deprecated(note = "Use AccountState instead")]
+pub type FuturesAccountInfo = AccountState;
 
 /// Temporary struct to deserialize the kline response from Binance,
 /// which is a JSON array of mixed types.

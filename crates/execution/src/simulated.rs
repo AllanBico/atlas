@@ -9,62 +9,44 @@ use core_types::{OrderRequest, Execution, Side, Position};
 use num_traits::FromPrimitive;
 use tokio::sync::broadcast;
 use events::WsMessage;
-/// A simulated executor that processes orders against an in-memory portfolio.
-///
-/// This executor is the core of the backtesting and paper trading engine.
-/// It simulates market fills, slippage, and fees without sending any
-/// real orders to an exchange.
-#[derive(Debug)]
+// use std::sync::{Arc, Mutex};
+
+
 pub struct SimulatedExecutor {
-    /// The configuration for the simulation.
     settings: SimulationSettings,
-    
-    /// The portfolio holding the current state (cash, positions).
-    /// `Portfolio` is not `Clone`, so the executor must own it.
-    portfolio: Portfolio,
     ws_tx: broadcast::Sender<WsMessage>,
 }
 
 impl SimulatedExecutor {
-    /// Creates a new `SimulatedExecutor`.
-    ///
-    /// # Arguments
-    ///
-    /// * `settings`: The simulation settings (fees, slippage).
-    /// * `initial_capital`: The starting cash balance for the portfolio.
     pub fn new(
         settings: SimulationSettings,
-        initial_capital: Decimal,
         ws_tx: broadcast::Sender<WsMessage>,
     ) -> Self {
-        Self {
-            settings,
-            portfolio: Portfolio::new(initial_capital),
-            ws_tx,
-        }
+        Self { settings, ws_tx }
     }
 
-    // We need to provide a way to get the portfolio state for our app to use.
-    pub fn portfolio(&mut self) -> &mut Portfolio {
-        &mut self.portfolio
-    }
-
-    fn create_portfolio_update(&self) -> events::WsPortfolioUpdate {
-        let open_positions_str_keys = self.portfolio.open_positions
+    fn create_portfolio_update(portfolio: &Portfolio) -> events::WsPortfolioUpdate {
+        let open_positions_str_keys = portfolio.open_positions
             .iter()
             .map(|(k, v)| (k.0.clone(), v.clone()))
             .collect();
         // TODO: Calculate total value (cash + position values)
-        let total_value = self.portfolio.cash;
+        let total_value = portfolio.cash;
         events::WsPortfolioUpdate {
-            cash: self.portfolio.cash,
+            cash: portfolio.cash,
             total_value,
             open_positions: open_positions_str_keys,
         }
     }
 
     /// Processes an entry order (opening a new long or short position).
-    fn process_entry(&mut self, order: &OrderRequest, current_price: Decimal, current_time: i64) -> Result<(Execution, Option<Position>)> {
+    fn process_entry(
+        &self,
+        order: &OrderRequest,
+        current_price: Decimal,
+        current_time: i64,
+        portfolio: &mut Portfolio,
+    ) -> Result<(Execution, Option<Position>)> {
         // --- 1. Calculate Execution Price with Slippage ---
         let slippage_factor = Decimal::from_f64(self.settings.slippage_percent).unwrap();
         let execution_price = if order.side == Side::Long {
@@ -82,12 +64,12 @@ impl SimulatedExecutor {
 
         // --- 3. Update Portfolio State ---
         // Veto if not enough cash to cover the fee. A real exchange would check margin.
-        if self.portfolio.cash < fee {
+        if portfolio.cash < fee {
             return Err(Error::ExecutionFailed {
                 reason: "Insufficient cash for fees".to_string(),
             });
         }
-        self.portfolio.cash -= fee;
+        portfolio.cash -= fee;
 
         let new_position = Position {
             symbol: order.symbol.clone(),
@@ -100,7 +82,7 @@ impl SimulatedExecutor {
         };
 
         // Add the new position to our portfolio's open positions.
-        self.portfolio.open_positions.insert(order.symbol.clone(), new_position);
+        portfolio.open_positions.insert(order.symbol.clone(), new_position);
 
         // --- 4. Return the Execution Result ---
         let execution = Execution {
@@ -113,15 +95,20 @@ impl SimulatedExecutor {
         };
         let _ = self.ws_tx.send(events::WsMessage::TradeExecuted(execution.clone()));
         // Construct the full portfolio update
-        let portfolio_update = self.create_portfolio_update();
+        let portfolio_update = Self::create_portfolio_update(portfolio);
         let _ = self.ws_tx.send(events::WsMessage::PortfolioUpdate(portfolio_update));
         Ok((execution, None))
     }
 
     /// Processes a closing order.
-    fn process_close(&mut self, order: &OrderRequest, current_price: Decimal) -> Result<(Execution, Option<Position>)> {
+    fn process_close(
+        &self,
+        order: &OrderRequest,
+        current_price: Decimal,
+        portfolio: &mut Portfolio,
+    ) -> Result<(Execution, Option<Position>)> {
         // --- 1. Find the Position to Close ---
-        let open_position = self.portfolio.open_positions.remove(&order.symbol).ok_or_else(
+        let open_position = portfolio.open_positions.remove(&order.symbol).ok_or_else(
             || Error::ExecutionFailed {
                 reason: format!("No open position found for symbol {}", order.symbol.0),
             },
@@ -148,7 +135,7 @@ impl SimulatedExecutor {
         let net_pnl = pnl - fee;
 
         // --- 4. Update Portfolio State ---
-        self.portfolio.cash += net_pnl;
+        portfolio.cash += net_pnl;
 
         // --- 5. Return the Execution Result ---
         let execution = Execution {
@@ -160,11 +147,7 @@ impl SimulatedExecutor {
             source_request: order.clone(),
         };
         let _ = self.ws_tx.send(WsMessage::TradeExecuted(execution.clone()));
-        let _ = self.ws_tx.send(WsMessage::PortfolioUpdate(events::WsPortfolioUpdate {
-            cash: Decimal::ZERO,
-            total_value: Decimal::ZERO,
-            open_positions: std::collections::HashMap::new(),
-        }));
+        let _ = self.ws_tx.send(WsMessage::PortfolioUpdate(Self::create_portfolio_update(portfolio)));
         Ok((execution, Some(open_position)))
     }
 }
@@ -175,10 +158,6 @@ impl Executor for SimulatedExecutor {
         "SimulatedExecutor"
     }
 
-    fn portfolio(&mut self) -> &mut Portfolio {
-        &mut self.portfolio
-    }
-
     /// The public method that fulfills the `Executor` trait contract.
     /// It acts as a router to the appropriate internal simulation logic.
     async fn execute(
@@ -186,13 +165,14 @@ impl Executor for SimulatedExecutor {
         order_request: &OrderRequest,
         current_price: rust_decimal::Decimal,
         current_time: i64,
+        portfolio: &mut Portfolio,
     ) -> Result<(Execution, Option<Position>)> {
-        let is_entry = !self.portfolio.open_positions.contains_key(&order_request.symbol);
+        let is_entry = !portfolio.open_positions.contains_key(&order_request.symbol);
 
         if is_entry {
-            self.process_entry(order_request, current_price, current_time)
+            self.process_entry(order_request, current_price, current_time, portfolio)
         } else {
-            self.process_close(order_request, current_price)
+            self.process_close(order_request, current_price, portfolio)
         }
     }
 }

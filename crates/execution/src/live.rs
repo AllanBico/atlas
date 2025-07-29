@@ -2,8 +2,8 @@
 use crate::{Error, Executor, Result}; 
 use api_client::ApiClient;
 use async_trait::async_trait;
-use core_types::{Execution, OrderRequest, Position, Side};
-use events::{WsMessage, WsPortfolioUpdate};
+use core_types::{Execution, OrderRequest, Position};
+use events::WsMessage;
 use num_traits::FromPrimitive;
 use tokio::sync::broadcast;
 
@@ -19,8 +19,8 @@ pub struct LiveExecutor {
     /// The sender for broadcasting events to the UI.
     ws_tx: broadcast::Sender<WsMessage>,
 
-    /// The portfolio (not used in live, but required by trait)
-    portfolio: crate::types::Portfolio,
+    // Portfolio is now passed in via the execute method
+    // and managed by the Engine
 }
 
 impl LiveExecutor {
@@ -34,12 +34,10 @@ impl LiveExecutor {
     pub fn new(
         api_client: ApiClient,
         ws_tx: broadcast::Sender<WsMessage>,
-        initial_capital: rust_decimal::Decimal,
     ) -> Self {
         Self {
             api_client,
             ws_tx,
-            portfolio: crate::types::Portfolio::new(initial_capital),
         }
     }
 }
@@ -50,18 +48,12 @@ impl Executor for LiveExecutor {
         "LiveExecutor"
     }
 
-    /// The portfolio state is managed by the exchange, not internally.
-    /// This will be updated by the State Reconciler in a future phase.
-fn portfolio(&mut self) -> &mut crate::types::Portfolio {
-        &mut self.portfolio
-    
-    }
-
     async fn execute(
         &mut self,
         order_request: &OrderRequest,
         _current_price: rust_decimal::Decimal, // Ignored, as we get the real fill price
         _current_time: i64, // Ignored, as the exchange provides timestamps
+        _portfolio: &mut crate::types::Portfolio, // Portfolio is now passed in
     ) -> Result<(Execution, Option<Position>)> {
         tracing::info!(?order_request, "Executing live order request...");
 

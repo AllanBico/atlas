@@ -1,10 +1,11 @@
-// In app/src/main.rs (REPLACE ENTIRE FILE)
-
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use chrono::{TimeZone, Utc};
+use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
+use tokio::sync::Mutex as TokioMutex;
+use execution::Portfolio;
 use core_types::Symbol;
-use core_types::Kline;
 use risk::simple_manager::SimpleRiskManager;
 use risk::RiskManager;
 use strategies::ma_crossover::MACrossover;
@@ -15,7 +16,6 @@ use tokio::time::sleep;
 use execution::simulated::SimulatedExecutor;
 use execution::Executor;
 use rust_decimal_macros::dec; // For our test portfolio
-use core_types::Signal;
 use backtester::Backtester;
 mod analyzer;
 use crate::analyzer::RankedReport;
@@ -28,9 +28,9 @@ use events::WsMessage;
 use self::tracing_layer::WsBroadcastLayer;
 use tokio::sync::broadcast;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
 mod tracing_layer;
 use engine::Engine; // Import our new Engine
+use engine::reconciler::StateReconciler; // Import the Reconciler
 
 // --- Command-Line Interface Definition ---
 
@@ -60,7 +60,7 @@ enum Commands {
         #[arg(long)]
         start_date: Option<String>,
     },
-    
+
     // Add this new subcommand
     /// Runs a historical backtest of a strategy.
     Backtest {
@@ -75,12 +75,12 @@ enum Commands {
         /// The start date for the backtest in YYYY-MM-DD format.
         #[arg(long)]
         start_date: String,
-        
+
         /// The end date for the backtest in YYYY-MM-DD format.
         #[arg(long)]
         end_date: String,
     },
-    
+
     /// Runs a full parameter optimization job.
     Optimize,
 }
@@ -95,7 +95,7 @@ async fn main() -> Result<()> {
     // --- WebSocket and Tracing Setup ---
     let (ws_tx, _) = broadcast::channel::<WsMessage>(1024);
     // Create the cache here
-    let ws_cache = Arc::new(Mutex::new(VecDeque::with_capacity(200)));
+    let ws_cache = Arc::new(StdMutex::new(VecDeque::with_capacity(200)));
     // Pass both to the layer
     let ws_layer = WsBroadcastLayer::new(ws_tx.clone(), ws_cache.clone());
     let fmt_layer = tracing_subscriber::fmt::layer()
@@ -150,13 +150,24 @@ async fn run_app() -> Result<()> {
     let settings = app_config::load_settings()?;
     tracing::info!("Application settings loaded successfully.");
 
-    let db_pool = database::connect(&settings.database).await?;
+    let _db_pool = database::connect(&settings.database).await?;
     tracing::info!("Database connection established and migrations are up-to-date.");
+
+    // Create a broadcast channel for WebSocket messages.
+    let (_ws_tx, _) = broadcast::channel::<WsMessage>(1024); // Adjust buffer size as needed
+
+    // Initialize the database connection pool.
+    let db_pool = database::connect(&settings.database).await?;
+
+    // --- 2. Create Shared State ---
+    let initial_capital = dec!(10_000);
+    let portfolio = Arc::new(TokioMutex::new(execution::types::Portfolio::new(initial_capital) ));
+    tracing::info!("Portfolio initialized with initial capital.");
 
     // The WebSocket broadcaster is a central piece of state.
     let (ws_tx, _) = broadcast::channel::<events::WsMessage>(1024);
 
-    // --- 2. Component Instantiation ---
+    // --- 3. Component Instantiation ---
     // Use a hardcoded SimulationSettings for now, as in backtest
     let dummy_settings = execution::types::SimulationSettings {
         maker_fee: 0.0,
@@ -171,12 +182,10 @@ async fn run_app() -> Result<()> {
         Box::new(execution::live::LiveExecutor::new(
             api_client.clone(),
             ws_tx.clone(),
-            dec!(1000.0), // dummy initial capital
         ))
     } else {
         Box::new(execution::simulated::SimulatedExecutor::new(
             dummy_settings.clone(),
-            dec!(1000.0), // dummy initial capital
             ws_tx.clone(),
         ))
     };
@@ -187,7 +196,7 @@ async fn run_app() -> Result<()> {
     ));
 
     // Instantiate Strategy (explicit, as in backtest)
-    let strategy: Box<dyn Strategy + Send> = if let Some(settings) = settings.strategies.ma_crossover.as_ref() {
+    let _strategy: Box<dyn Strategy + Send> = if let Some(settings) = settings.strategies.ma_crossover.as_ref() {
         Box::new(strategies::ma_crossover::MACrossover::new(settings.clone()))
     } else if let Some(settings) = settings.strategies.supertrend.as_ref() {
         Box::new(strategies::supertrend::SuperTrend::new(settings.clone()))
@@ -197,40 +206,50 @@ async fn run_app() -> Result<()> {
         anyhow::bail!("Cannot run: No strategies are configured in settings.");
     };
 
-    // --- 3. Create the Trading Engine ---
+    // --- 4. Launch Concurrent Tasks ---
     let live_config = app_config::load_live_config()?;
-    
+
+    // Create the State Reconciler instance
+    let reconciler = StateReconciler::new(
+        api_client.clone(),
+        Arc::clone(&portfolio), // Give it a pointer to the shared portfolio
+    );
+
+    // Create the Trading Engine instance
     let mut trading_engine = Engine::new(
         &live_config,
-        // &settings.strategies, // <-- REMOVE THIS
         db_pool.clone(),
         risk_manager,
         executor,
         ws_tx.clone(),
-        settings.binance.clone(), // <-- ADD THIS
+        settings.binance.clone(),
+        Arc::clone(&portfolio), // Give it a pointer to the shared portfolio
     );
-    
-    // --- 4. Launch Concurrent Tasks ---
-    tracing::info!("Launching concurrent Trading Engine and Web Server tasks...");
 
-    // Spawn the trading engine to run in its own concurrent task.
+    tracing::info!("Launching concurrent tasks: Engine, WebServer, StateReconciler...");
+
     let engine_handle = tokio::spawn(async move {
         trading_engine.run().await
     });
-    
-    // Run the web server in the current task.
+
     let server_handle = tokio::spawn(async move {
         web_server::run(settings.server, db_pool, ws_tx).await
     });
 
-    // Use `tokio::select!` to wait for the first task to complete.
-    // In a healthy state, neither should complete. If one does, it's likely an error.
+    let reconciler_handle = tokio::spawn(async move {
+        reconciler.run().await
+    });
+
+    // --- 5. Supervise Tasks ---
     tokio::select! {
         engine_result = engine_handle => {
-            tracing::error!(?engine_result, "Trading engine task has terminated unexpectedly.");
+            tracing::error!(?engine_result, "Trading engine has terminated unexpectedly.");
         }
         server_result = server_handle => {
             tracing::error!(?server_result, "Web server task has terminated unexpectedly.");
+        }
+        reconciler_result = reconciler_handle => {
+            tracing::error!(?reconciler_result, "State reconciler has terminated unexpectedly.");
         }
     }
 
@@ -312,9 +331,11 @@ async fn handle_backtest(
     let symbol = Symbol(symbol_str);
 
     // Parse start and end dates
-    let start_dt = Utc.datetime_from_str(&format!("{} 00:00:00", start_date), "%Y-%m-%d %H:%M:%S")
+    let start_dt = chrono::DateTime::parse_from_str(&format!("{} 00:00:00", start_date), "%Y-%m-%d %H:%M:%S")
+        .map(|dt| dt.with_timezone(&Utc))
         .map_err(|e| anyhow::anyhow!("Failed to parse start date: {}", e))?;
-    let end_dt = Utc.datetime_from_str(&format!("{} 23:59:59", end_date), "%Y-%m-%d %H:%M:%S")
+    let end_dt = chrono::DateTime::parse_from_str(&format!("{} 23:59:59", end_date), "%Y-%m-%d %H:%M:%S")
+        .map(|dt| dt.with_timezone(&Utc))
         .map_err(|e| anyhow::anyhow!("Failed to parse end date: {}", e))?;
 
     // --- 2. Instantiate All Components ---
@@ -340,7 +361,15 @@ async fn handle_backtest(
         taker_fee: 0.0,
         slippage_percent: 0.0,
     };
-    let mut executor = Box::new(SimulatedExecutor::new(dummy_settings, dec!(10_000.0), ws_tx.clone())) as Box<dyn Executor + Send>;
+
+    // Create a new portfolio with initial capital
+    let initial_capital = dec!(10_000.0);
+    let portfolio = Arc::new(TokioMutex::new(Portfolio::new(initial_capital)));
+
+    let executor = Box::new(SimulatedExecutor::new(
+        dummy_settings,
+        ws_tx.clone()
+    )) as Box<dyn Executor + Send + Sync>;
 
     // --- 3. Load Data ---
     let db = database::connect(&settings.database).await?;
@@ -402,7 +431,7 @@ async fn handle_optimize() -> Result<()> {
     if param_sets.is_empty() {
         anyhow::bail!("No valid parameter sets were generated.");
     }
-    
+
     tracing::info!("Starting optimization with {} parameter sets", param_sets.len());
 
     // Create the DB connection and job ID in the async context
@@ -414,13 +443,13 @@ async fn handle_optimize() -> Result<()> {
     task::spawn_blocking(move || {
         run_optimization(&app_settings, &optimizer_config.job, param_sets, job_id)
     }).await??;
-    
+
     // 3. Analyze the results (this is fast, can be done on the main thread).
     let db = database::connect(&app_config::load_settings()?.database).await?;
     let ranked_results = analyzer::analyze_and_rank_results(&db, job_id).await?;
 
     print_optimization_report(&ranked_results);
-    
+
     tracing::info!(duration = ?start_time.elapsed(), "Optimization job and analysis finished.");
     Ok(())
 }
@@ -435,7 +464,7 @@ fn print_optimization_report(results: &[RankedReport]) {
     for (i, ranked_report) in results.iter().take(5).enumerate() {
         println!("\n[Rank {} | Score: {:.2}]", i + 1, ranked_report.score);
         println!("  - Parameters: {}", serde_json::to_string_pretty(&ranked_report.report.parameters).unwrap_or_default());
-        
+
         let report = &ranked_report.report.report;
         println!("  - P&L: ${:.2} ({:.2}%) | Max Drawdown: {:.2}% | Sharpe: {:.2} | Trades: {}",
             report.net_pnl_absolute,
@@ -446,7 +475,7 @@ fn print_optimization_report(results: &[RankedReport]) {
         );
     }
     println!("\n---------------------------------");
-    
+
     if let Some(best) = results.first() {
         println!("Recommendation: The parameter set with the highest score is:");
         println!("  {}", serde_json::to_string_pretty(&best.report.parameters).unwrap_or_default());

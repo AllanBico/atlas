@@ -1,14 +1,14 @@
 // In crates/execution/src/lib.rs (REPLACE ENTIRE FILE)
 
 use async_trait::async_trait;
-use core_types::{Execution, OrderRequest};
+use core_types::{Execution, OrderRequest, Position};
 pub mod simulated;
 pub mod error;
 pub mod types;
 pub mod live; 
 // Re-export public types
 pub use error::{Error, Result};
-pub use types::SimulationSettings;
+pub use types::{SimulationSettings, Portfolio};
 
 /// The universal interface for an execution handler.
 ///
@@ -20,7 +20,7 @@ pub trait Executor: Sync {
     /// The name of the executor (e.g., "LiveBinanceExecutor", "SimulatedBacktestExecutor").
     fn name(&self) -> &'static str;
 
-    /// Executes a given order request.
+    /// Executes a given order request against the provided portfolio.
     ///
     /// This method should handle the entire lifecycle of placing an order and
     /// waiting for its confirmation.
@@ -28,17 +28,21 @@ pub trait Executor: Sync {
     /// # Arguments
     ///
     /// * `order_request`: A reference to the `OrderRequest` to be executed.
+    /// * `current_price`: The current market price for the asset.
+    /// * `current_time`: The current timestamp for the execution.
+    /// * `portfolio`: A mutable reference to the portfolio to execute the order against.
     ///
     /// # Returns
     ///
-    /// A `Result` containing the `Execution` details on success, or an `Error`
-    /// if the order could not be successfully executed.
+    /// A `Result` containing a tuple of:
+    /// - The `Execution` details on success
+    /// - An optional `Position` if a position was closed
+    /// - Or an `Error` if the order could not be successfully executed.
     async fn execute(
         &mut self,
         order_request: &OrderRequest,
         current_price: rust_decimal::Decimal,
         current_time: i64,
-    ) -> Result<(Execution, Option<core_types::Position>)>;
-
-    fn portfolio(&mut self) -> &mut crate::types::Portfolio;
+        portfolio: &mut Portfolio,
+    ) -> Result<(Execution, Option<Position>)>;
 }

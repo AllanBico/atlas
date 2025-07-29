@@ -8,10 +8,13 @@ use futures::StreamExt;
 use risk::RiskManager;
 use strategies::Strategy;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::broadcast;
+use tokio::sync::Mutex;
 use events::WsMessage;
 use crate::bot::Bot;
 use app_config::types::{BinanceSettings, LiveConfig};
+use execution::types::Portfolio;
 use strategies::ma_crossover::MACrossover;
 use strategies::prob_reversion::ProbReversion;
 use strategies::supertrend::SuperTrend;
@@ -20,6 +23,7 @@ pub mod bot;
 const KLINE_HISTORY_SIZE: usize = 2; // Same as in backtester
 use anyhow;
 use toml;
+pub mod reconciler;
 /// The core trading engine that orchestrates live data and decision making for a portfolio of bots.
 pub struct Engine<'a> {
     /// A map of all active bot instances, keyed by their unique stream name (e.g., "btcusdt@kline_1m").
@@ -32,6 +36,9 @@ pub struct Engine<'a> {
     live_connector: LiveConnector,
     binance_settings: BinanceSettings,
     ws_tx: broadcast::Sender<WsMessage>,
+    
+    /// The shared portfolio state, wrapped in Arc<Mutex<>> for thread-safe access
+    portfolio: Arc<Mutex<Portfolio>>,
 }
 
 impl<'a> Engine<'a> {
@@ -44,6 +51,7 @@ impl<'a> Engine<'a> {
         executor: Box<dyn Executor + Send + Sync + 'a>,
         ws_tx: broadcast::Sender<WsMessage>,
         binance_settings: BinanceSettings, // Pass this through
+        portfolio: Arc<Mutex<Portfolio>>, // Shared portfolio state
     ) -> Self {
         let mut bots = HashMap::new();
 
@@ -122,6 +130,7 @@ impl<'a> Engine<'a> {
             live_connector: LiveConnector::new(),
             binance_settings,
             ws_tx,
+            portfolio,
         }
     }
 
@@ -172,7 +181,12 @@ impl<'a> Engine<'a> {
                 };
                 
                 // Delegate all decision-making logic to the bot instance.
-                if let Err(e) = bot.on_kline(kline, &self.risk_manager, &mut self.executor).await {
+                if let Err(e) = bot.on_kline(
+                    kline,
+                    &self.risk_manager,
+                    &mut self.executor,
+                    &self.portfolio,
+                ).await {
                     tracing::error!(bot_id = %bot.id, error = %e, "An error occurred in a bot's on_kline handler.");
                 }
             } else {

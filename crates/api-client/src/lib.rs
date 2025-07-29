@@ -3,10 +3,9 @@
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use crate::types::FuturesAccountInfo;
 use serde_json::Value;
 use app_config::types::BinanceSettings;
-use core_types::{Kline, Symbol, Side};
+use core_types::{Kline, Symbol};
 // Create a type alias for the HMAC-SHA256 implementation.
 type HmacSha256 = Hmac<Sha256>;
 
@@ -81,10 +80,10 @@ impl ApiClient {
         params.push_str(&format!("&signature={}", signature));
     }
 
-    /// Fetches the futures account balance and asset information.
+    /// Fetches the full futures account state, including balances and positions.
     ///
     /// This corresponds to the `GET /fapi/v2/account` endpoint.
-    pub async fn get_account_balance(&self) -> Result<FuturesAccountInfo> {
+    pub async fn get_account_state(&self) -> Result<AccountState> {
         let mut params = String::new();
         self.create_signed_query(&mut params);
 
@@ -99,20 +98,35 @@ impl ApiClient {
             .map_err(Error::RequestFailed)?;
 
         let text = response.text().await.map_err(Error::RequestFailed)?;
-        let value: Value = serde_json::from_str(&text).map_err(Error::DeserializationFailed)?;
+        let value: serde_json::Value = serde_json::from_str(&text).map_err(Error::DeserializationFailed)?;
         
-        // Binance returns an error object on failure, so we check for that first.
-        if let Some(code) = value.get("code").and_then(Value::as_i64) {
+        // Check for API errors
+        if let Some(code) = value.get("code").and_then(serde_json::Value::as_i64) {
             if code != 0 {
-                let msg = value.get("msg").and_then(Value::as_str).unwrap_or("Unknown error").to_string();
+                let msg = value.get("msg").and_then(serde_json::Value::as_str).unwrap_or("Unknown error").to_string();
                 return Err(Error::ApiError { code, msg });
             }
         }
         
-        // If no error code, deserialize into our target struct.
-        let account_info: FuturesAccountInfo = serde_json::from_value(value).map_err(Error::DeserializationFailed)?;
+        // Deserialize into our AccountState struct
+        let account_state: AccountState = serde_json::from_value(value)
+            .map_err(|e| {
+                tracing::error!(error = ?e, "Failed to deserialize AccountState");
+                Error::DeserializationFailed(e)
+            })?;
 
-        Ok(account_info)
+        Ok(account_state)
+    }
+
+    /// Fetches the futures account balance and asset information.
+    ///
+    /// This is a legacy function that wraps `get_account_state` for backward compatibility.
+    /// New code should use `get_account_state` instead.
+    #[deprecated(note = "Use get_account_state instead")]
+    pub async fn get_account_balance(&self) -> Result<FuturesAccountInfo> {
+        // Since FuturesAccountInfo is just a type alias for AccountState,
+        // we can directly return the result of get_account_state()
+        self.get_account_state().await
     }
 
     /// Fetches historical kline (candlestick) data.

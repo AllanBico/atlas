@@ -6,7 +6,7 @@ use core_types::{Kline, Side};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
 use ta::indicators::{AverageTrueRange, ExponentialMovingAverage as Ema};
-use ta::{Next, Period, DataItem};
+use ta::{Next, DataItem};
 
 // --- Internal State and Enums ---
 

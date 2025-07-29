@@ -12,7 +12,10 @@ use execution::simulated::SimulatedExecutor;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use rust_decimal_macros::dec;
-use std::sync::Arc;
+use std::sync::{
+    Arc, 
+    // Mutex
+};
 use strategies::ma_crossover::MACrossover;
 use chrono::Utc;
 use chrono::TimeZone;
@@ -215,7 +218,15 @@ fn run_single_backtest_and_save(
             slippage_percent: 0.0,
         };
         let (dummy_ws_tx, _) = tokio::sync::broadcast::channel(1);
-        let executor = Box::new(SimulatedExecutor::new(dummy_settings, dec!(10_000.0), dummy_ws_tx));
+        
+        // Create a new portfolio with initial capital
+        let initial_capital = dec!(10_000.0);
+        let _portfolio = std::sync::Arc::new(tokio::sync::Mutex::new(execution::Portfolio::new(initial_capital)));
+        
+        let executor = Box::new(SimulatedExecutor::new(
+            dummy_settings,
+            dummy_ws_tx
+        ));
 
         // Instantiate the correct strategy based on strategy_name and param type
         let strategy: Box<dyn strategies::Strategy + Send> = match strategy_name {
@@ -235,7 +246,8 @@ fn run_single_backtest_and_save(
         };
 
         let parse_date = |s: &str, is_start: bool| {
-            if let Ok(dt) = Utc.datetime_from_str(s, "%Y-%m-%dT%H:%M:%S") {
+        if let Ok(dt) = chrono::DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
+            .map(|dt| dt.with_timezone(&Utc)) {
                 Ok(dt)
             } else if let Ok(date) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
                 let time = if is_start { chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap() } else { chrono::NaiveTime::from_hms_opt(23, 59, 59).unwrap() };
@@ -315,7 +327,7 @@ pub fn run_optimization(
     let strategy_name = job_settings.strategy_to_optimize.clone();
     
     let total_runs = param_sets.len();
-    let mut completed_runs = 0;
+    let _completed_runs = 0;
     let completed_runs_mutex = Arc::new(std::sync::Mutex::new(0));
     
     param_sets.par_iter().for_each_with(shared_settings, |settings, param| {

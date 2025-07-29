@@ -218,32 +218,18 @@ async fn run_app() -> Result<()> {
     // Create the Trading Engine instance
     let mut trading_engine = Engine::new(
         &live_config,
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-        &settings.strategies,
-        settings.binance.clone(),
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
-=======
-        &settings.strategies,
-        settings.binance.clone(),
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
+        // &settings.strategies, // <-- REMOVE THIS
         db_pool.clone(),
         risk_manager,
         executor,
         ws_tx.clone(),
-<<<<<<< HEAD
-<<<<<<< HEAD
-        settings.binance.clone(),
-        Arc::clone(&portfolio), // Give it a pointer to the shared portfolio
-=======
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
-=======
->>>>>>> parent of a9745ac (Phase 22.5 Complete)
+        settings.binance.clone(), // <-- ADD THIS
     );
+    
+    // --- 4. Launch Concurrent Tasks ---
+    tracing::info!("Launching concurrent Trading Engine and Web Server tasks...");
 
-    tracing::info!("Launching concurrent tasks: Engine, WebServer, StateReconciler...");
-
+    // Spawn the trading engine to run in its own concurrent task.
     let engine_handle = tokio::spawn(async move {
         trading_engine.run().await
     });

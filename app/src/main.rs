@@ -219,6 +219,11 @@ async fn run_app() -> Result<()> {
     let mut trading_engine = Engine::new(
         &live_config,
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+        &settings.strategies,
+        settings.binance.clone(),
+>>>>>>> parent of a9745ac (Phase 22.5 Complete)
 =======
         &settings.strategies,
         settings.binance.clone(),
@@ -228,8 +233,11 @@ async fn run_app() -> Result<()> {
         executor,
         ws_tx.clone(),
 <<<<<<< HEAD
+<<<<<<< HEAD
         settings.binance.clone(),
         Arc::clone(&portfolio), // Give it a pointer to the shared portfolio
+=======
+>>>>>>> parent of a9745ac (Phase 22.5 Complete)
 =======
 >>>>>>> parent of a9745ac (Phase 22.5 Complete)
     );
